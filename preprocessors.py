@@ -25,7 +25,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         if self.km.kernel_name == 'python3':
             source = '\n'.join(['if "%(data)s" not in locals():', '    %(data)s = {}']) % {'data':self.data_name}
         elif self.km.kernel_name == 'ir':
-            source = 'if (! exists("%(data)s") { %(data)s = list() }' % {'data':self.data_name}
+            source = 'if (! exists("%(data)s")) { %(data)s = list() }' % {'data':self.data_name}
         return source
 
     def capture_selection(self, cell, resources):
@@ -38,12 +38,14 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         if 'capture_selection' in cell.metadata:
             capture_cell = nbformat.v4.new_code_cell()
             for selection in cell.metadata['capture_selection']:
-                capture_cell.source += 'print(%s)\n' % selection['name']
+                capture_cell.source += '%s\n' % selection['name'] # assuming that the kernel does a nullop output for a string --
+                                                                  # we are assuming that each variable captured is valid JSON
             selection_outputs = self.run_cell(capture_cell, self.default_index)
             for selection, output in zip(cell.metadata['capture_selection'],
                                          selection_outputs):
+                print(output, 'output')
                 {'set':set_selection,
-                 'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], json.loads(output['text']))
+                 'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], json.loads(str(output['text'])))
 
 class AnalysisPreprocessor(SelectiveInferencePreprocessor):
 
@@ -118,7 +120,7 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
 ''' % {'data_name':self.data_name, 'data_file':data_file, 'variable_name':variable_name}
         elif self.km.kernel_name == 'ir':
             source = '''
-%(variable_name)s = read.table("%(data_file)s", delimiter=',', header=TRUE)
+%(variable_name)s = read.table("%(data_file)s", sep=',', header=TRUE)
 %(data_name)s["%(variable_name)s"] = %(variable_name)s
 ''' % {'data_name':self.data_name, 'data_file':data_file, 'variable_name':variable_name}
         return source
@@ -149,13 +151,16 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
     """
 
     simulate_data = Unicode()
+    @default('simulate_data')
+    def _default_data_name(self):
+        return 'simulated_data_' + str(uuid.uuid1()).replace('-','') 
 
     def simulate_data(self, resources):
         # all of the collected data will have to be available at runtime if we want to bootstrap, say
         if self.km.kernel_name == 'python3':
             source = '\n'.join(['if "%(simulate_data)s" not in locals():', '    %(simulate_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")']) 
         elif self.km.kernel_name == 'ir':
-            source = 'if (! exists("%(data)s") { %(data)s = list() }' % {'data':self.data_name}
+            source = 'if (! exists("%(simulate_data)s")) { %(simulate_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s") }' % {'data':self.data_name}
 
         source = source % {'simulate_data':self.simulate_data,
                            'simulate':resources.get('data_model', {}).get('resample_data', 'function_not_found'),

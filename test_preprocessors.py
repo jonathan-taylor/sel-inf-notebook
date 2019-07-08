@@ -30,6 +30,7 @@ def check_data_model(resources):
 
 
 # Read the drop the losers notebook
+# nbpath = 'hello-world-r.ipynb'
 nbpath = 'Hello world.ipynb'
 nb = nbformat.read(nbpath, nbformat.NO_CONVERT)
 
@@ -40,9 +41,9 @@ print(resources)
 
 source = """
 print(%(data)s)
-%(resample)s(%(data)s, '''%(fixed)s''')
-%(sufficient)s(%(data)s, '''%(fixed)s''')
-%(target)s(%(data)s, '''%(fixed)s''', '''%(set)s''')
+%(resample)s(%(data)s, '%(fixed)s')
+%(sufficient)s(%(data)s, '%(fixed)s')
+%(target)s(%(data)s, '%(fixed)s', '%(set)s')
 """ % {'data': resources['data_name'],
        'resample': resources['data_model']['resample_data'],
        'sufficient': resources['data_model']['sufficient_statistics'],
