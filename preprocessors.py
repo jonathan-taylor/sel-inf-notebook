@@ -3,7 +3,7 @@ import numpy as np
 
 import nbformat
 from nbconvert.preprocessors import ExecutePreprocessor
-from traitlets import Unicode, Int, default
+from traitlets import Unicode, Int, Bool, default
 
 class SelectiveInferencePreprocessor(ExecutePreprocessor):
     """
@@ -38,14 +38,17 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         if 'capture_selection' in cell.metadata:
             capture_cell = nbformat.v4.new_code_cell()
             for selection in cell.metadata['capture_selection']:
-                capture_cell.source += '%s\n' % selection['name'] # assuming that the kernel does a nullop output for a string --
-                                                                  # we are assuming that each variable captured is valid JSON
-            selection_outputs = self.run_cell(capture_cell, self.default_index)
+                if self.km.kernel_name == 'python3':
+                    capture_cell.source += '\n'.join(['from IPython.display import display',
+                                                      'display({"application/selective.inference":%s}, raw=True)' % selection['name']])
+                elif self.km.kernel_name == 'ir':
+                    capture_cell.source += 'IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(%s), NULL)' % selection['name']
+            selection_outputs = self.run_cell(capture_cell, self.default_index)[1]
             for selection, output in zip(cell.metadata['capture_selection'],
                                          selection_outputs):
                 print(output, 'output')
                 {'set':set_selection,
-                 'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], json.loads(str(output['text'])))
+                 'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], json.loads(str(output['data']['application/selective.inference'])))
 
 class AnalysisPreprocessor(SelectiveInferencePreprocessor):
 
@@ -77,7 +80,6 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         resources.setdefault('data_model', {})
         resources.setdefault('data_name', self.data_name)
 
-        # Original code from execute.py
         if cell.cell_type != 'code' or not cell.source.strip():
             return cell, resources
 
@@ -96,19 +98,19 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
 
         cell.outputs = outputs
 
-        if not self.allow_errors:
-            for out in outputs:
-                if out.output_type == 'error':
-                    pattern = u"""\
-                        An error occurred while executing the following cell:
-                        ------------------
-                        {cell.source}
-                        ------------------
+#         if not self.allow_errors:
+#             for out in outputs:
+#                 if out.output_type == 'error':
+#                     pattern = u"""\
+#                         An error occurred while executing the following cell:
+#                         ------------------
+#                         {cell.source}
+#                         ------------------
 
-                        {out.ename}: {out.evalue}
-                        """
-                    msg = pattern.format(out=out, cell=cell)
-                    raise ValueError(msg)
+#                         {out.ename}: {out.evalue}
+#                         """
+#                     msg = pattern.format(out=out, cell=cell)
+#                     raise ValueError(msg)
 
         return cell, resources
 
@@ -150,24 +152,31 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
     the analysis.
     """
 
-    simulate_data = Unicode()
-    @default('simulate_data')
+    data_has_been_simulated = Bool(False)
+
+    simulated_data = Unicode()
+    @default('simulated_data')
     def _default_data_name(self):
         return 'simulated_data_' + str(uuid.uuid1()).replace('-','') 
 
     def simulate_data(self, resources):
         # all of the collected data will have to be available at runtime if we want to bootstrap, say
-        if self.km.kernel_name == 'python3':
-            source = '\n'.join(['if "%(simulate_data)s" not in locals():', '    %(simulate_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")']) 
-        elif self.km.kernel_name == 'ir':
-            source = 'if (! exists("%(simulate_data)s")) { %(simulate_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s") }' % {'data':self.data_name}
+        if not self.data_has_been_simulated:
+            if self.km.kernel_name == 'python3':
+                source = '\n'.join(['if "%(simulated_data)s" not in locals():', '    %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")']) 
+            elif self.km.kernel_name == 'ir':
+                source = 'if (! exists("%(simulate_data)s")) { %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s") }' % {'data':self.data_name}
 
-        source = source % {'simulate_data':self.simulate_data,
-                           'simulate':resources.get('data_model', {}).get('resample_data', 'function_not_found'),
-                           'data_name':self.data_name,
-                           'fixed_selection': json.dumps(resources.get("fixed_selection", {}))}
-        simulate_cell = nbformat.v4.new_code_cell(source=source)
-        self.run_cell(simulate_cell, self.default_index)
+            source = source % {'simulated_data':self.simulate_data,
+                               'simulate':resources.get('data_model', {}).get('resample_data', 'function_not_found'),
+                               'data_name':self.data_name,
+                               'fixed_selection': json.dumps(resources.get("fixed_selection", {}))}
+            return source
+            simulate_cell = nbformat.v4.new_code_cell(source=source)
+            self.run_cell(simulate_cell, self.default_index)
+
+            self.data_has_been_simulated = True
+        
 
     def preprocess_cell(self, cell, resources, cell_index):
         """Executes a single code cell. Must return modified cell and resource dictionary.
@@ -184,6 +193,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         """
         
         self.simulate_data(resources)
+
         resources.setdefault('fixed_selection', {})
         resources.setdefault('set_selection', {})
         resources.setdefault('data_model', {})

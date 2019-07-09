@@ -30,8 +30,8 @@ def check_data_model(resources):
 
 
 # Read the drop the losers notebook
-# nbpath = 'hello-world-r.ipynb'
-nbpath = 'Hello world.ipynb'
+nbpath = 'hello-world-r.ipynb'
+#nbpath = 'Hello world.ipynb'
 nb = nbformat.read(nbpath, nbformat.NO_CONVERT)
 
 mypp = AnalysisPreprocessor(timeout=600)
