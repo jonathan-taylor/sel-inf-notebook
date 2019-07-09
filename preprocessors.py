@@ -61,7 +61,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
 
 #                 for attr in ['nb', 'km', 'kc']:
 #                     delattr(self, attr)
-                print("WTF?"*10)
+                print("hereiam?"*10)
                 pass
         else:
             self.km = km
