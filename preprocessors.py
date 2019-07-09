@@ -40,15 +40,19 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             for selection in cell.metadata['capture_selection']:
                 if self.km.kernel_name == 'python3':
                     capture_cell.source += '\n'.join(['from IPython.display import display',
-                                                      'display({"application/selective.inference":%s}, raw=True)' % selection['name']])
+                                                      'import json',
+                                                      'display({"application/selective.inference":json.dumps({"encoder":"json", "data":json.dumps(%s)})}, raw=True)' % selection['name']])
                 elif self.km.kernel_name == 'ir':
-                    capture_cell.source += 'IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(%s), NULL)' % selection['name']
-            selection_outputs = self.run_cell(capture_cell, self.default_index)[1]
+                    capture_cell.source += 'IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(list(encoder="json", data=toJSON(%s))), NULL)' % selection['name']
+            _, selection_outputs = self.run_cell(capture_cell, self.default_index)
             for selection, output in zip(cell.metadata['capture_selection'],
                                          selection_outputs):
-                print(output, 'output')
+                output = output['data']['application/selective.inference'] # a string
+                output = json.loads(output)
+                print(output['data'], 'output')
+                decoder = {'json':json.loads}[output['encoder']]
                 {'set':set_selection,
-                 'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], json.loads(str(output['data']['application/selective.inference'])))
+                 'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], decoder(output['data']))
 
 class AnalysisPreprocessor(SelectiveInferencePreprocessor):
 
@@ -86,7 +90,7 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         # capturing the data
 
         cell = self.prepend_data_input_code(cell)
-        outputs = self.run_cell(cell, cell_index)
+        _, outputs = self.run_cell(cell, cell_index)
         
         # capturing selection
 
@@ -97,20 +101,6 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
                 resources['data_model'][var] = cell.metadata['data_model'][var] # hooks used to define target and generative model
 
         cell.outputs = outputs
-
-#         if not self.allow_errors:
-#             for out in outputs:
-#                 if out.output_type == 'error':
-#                     pattern = u"""\
-#                         An error occurred while executing the following cell:
-#                         ------------------
-#                         {cell.source}
-#                         ------------------
-
-#                         {out.ename}: {out.evalue}
-#                         """
-#                     msg = pattern.format(out=out, cell=cell)
-#                     raise ValueError(msg)
 
         return cell, resources
 
