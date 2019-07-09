@@ -52,5 +52,6 @@ print(%(data)s)
        'set': json.dumps(resources['set_selection'])}
 test_cell = nbformat.v4.new_code_cell(source=source)
 nb.cells.append(test_cell)
-mypp.preprocess(nb, resources)
+print(mypp.preprocess_cell(test_cell, resources, 0), 'aha')
+
 

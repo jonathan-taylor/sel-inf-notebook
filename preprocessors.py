@@ -1,4 +1,5 @@
 import copy, uuid, json
+from contextlib import contextmanager
 import numpy as np
 
 import nbformat
@@ -10,7 +11,76 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
     Notebook preprocessor for selective inference.
     """
 
-    pass
+    @contextmanager
+    def setup_preprocessor(self, nb, resources, km=None):
+        """
+        Context manager for setting up the class to execute a notebook.
+
+        The assigns `nb` to `self.nb` where it will be modified in-place. It also creates
+        and assigns the Kernel Manager (`self.km`) and Kernel Client(`self.kc`).
+
+        It is intended to yield to a block that will execute codeself.
+
+        When control returns from the yield it stops the client's zmq channels, shuts
+        down the kernel, and removes the now unused attributes.
+
+        Parameters
+        ----------
+        nb : NotebookNode
+            Notebook being executed.
+        resources : dictionary
+            Additional resources used in the conversion process. For example,
+            passing ``{'metadata': {'path': run_path}}`` sets the
+            execution path to ``run_path``.
+        km : KernerlManager (optional)
+            Optional kernel manaher. If none is provided, a kernel manager will
+            be created.
+
+        Returns
+        -------
+        nb : NotebookNode
+            The executed notebook.
+        resources : dictionary
+            Additional resources used in the conversion process.
+        """
+        path = resources.get('metadata', {}).get('path', '') or None
+        self.nb = nb
+        # clear display_id map
+        self._display_id_map = {}
+        self.widget_state = {}
+        self.widget_buffers = {}
+
+        if km is None:
+            self.km, self.kc = self.start_new_kernel(cwd=path)
+            try:
+                # Yielding unbound args for more easier understanding and downstream consumption
+                yield nb, self.km, self.kc
+            finally:
+#                 self.kc.stop_channels()
+#                 self.km.shutdown_kernel(now=self.shutdown_kernel == 'immediate')
+
+#                 for attr in ['nb', 'km', 'kc']:
+#                     delattr(self, attr)
+                print("WTF?"*10)
+                pass
+        else:
+            self.km = km
+            if not km.has_kernel:
+                km.start_kernel(extra_arguments=self.extra_arguments, **kwargs)
+            self.kc = km.client()
+
+            self.kc.start_channels()
+            try:
+                self.kc.wait_for_ready(timeout=self.startup_timeout)
+            except RuntimeError:
+                self.kc.stop_channels()
+                raise
+            self.kc.allow_stdin = False
+            try:
+                yield nb, self.km, self.kc
+            finally:
+                for attr in ['nb', 'km', 'kc']:
+                    delattr(self, attr)
 
     data_name = Unicode()
     default_index = Int(-1)
