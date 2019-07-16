@@ -6,6 +6,8 @@ import nbformat
 from nbconvert.preprocessors import ExecutePreprocessor
 from traitlets import Unicode, Int, Bool, default
 
+from json_dataframe import dataframe_to_json, json_to_dataframe, dataframe_to_jsonR, base64_to_dataframe
+
 class SelectiveInferencePreprocessor(ExecutePreprocessor):
     """
     Notebook preprocessor for selective inference.
@@ -111,18 +113,24 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                 if self.km.kernel_name == 'python3':
                     capture_cell.source += '\n'.join(['from IPython.display import display',
                                                       'import json',
-                                                      'display({"application/selective.inference":json.dumps({"encoder":"json", "data":json.dumps(%s)})}, raw=True)' % selection['name']])
+                                                      'display({"application/selective.inference":json.dumps(%s)}, metadata={"encoder":"json"}, raw=True)' % selection['name']])
                 elif self.km.kernel_name == 'ir':
-                    capture_cell.source += 'IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(list(encoder="json", data=toJSON(%s))), NULL)' % selection['name']
+                    capture_cell.source += '''
+IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(%s), NULL, list(encoder="json"))
+''' % selection['name']
+
             _, selection_outputs = self.run_cell(capture_cell, self.default_index)
+
             for selection, output in zip(cell.metadata['capture_selection'],
                                          selection_outputs):
-                output = output['data']['application/selective.inference'] # a string
-                output = json.loads(output)
-                print(output['data'], 'output')
-                decoder = {'json':json.loads}[output['encoder']]
+                output_data = output['data']['application/selective.inference'] # a string
+                print(output_data, 'output')
+                decoder = {'json':json.loads,
+                           'dataframe':base64_to_dataframe,
+                           }.get(output.metadata['encoder'], 'json')
+                stop
                 {'set':set_selection,
-                 'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], decoder(output['data']))
+                 'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], decoder(output_data))
 
 class AnalysisPreprocessor(SelectiveInferencePreprocessor):
 
