@@ -6,7 +6,8 @@ import nbformat
 from nbconvert.preprocessors import ExecutePreprocessor
 from traitlets import Unicode, Int, Bool, default
 
-from json_dataframe import dataframe_to_json, json_to_dataframe, dataframe_to_jsonR, base64_to_dataframe
+#from json_dataframe import dataframe_to_json, json_to_dataframe, dataframe_to_jsonR, base64_to_dataframe
+from json_dataframe import base64_to_dataframe
 
 class SelectiveInferencePreprocessor(ExecutePreprocessor):
     """
@@ -128,9 +129,10 @@ IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(%s), NU
                 decoder = {'json':json.loads,
                            'dataframe':base64_to_dataframe,
                            }.get(output.metadata['encoder'], 'json')
-                stop
+                #stop
                 {'set':set_selection,
                  'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], decoder(output_data))
+                print('DECODER', decoder(output_data))
 
 class AnalysisPreprocessor(SelectiveInferencePreprocessor):
 
