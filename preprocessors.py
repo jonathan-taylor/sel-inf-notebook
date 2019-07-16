@@ -124,9 +124,17 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                                                           'display({"application/selective.inference":open(filename, "rb").read()}, metadata={"encoder":"dataframe"}, raw=True)'])
 
                 elif self.km.kernel_name == 'ir':
-                    capture_cell.source += '''
-IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(%s), NULL, list(encoder="json"))
-''' % selection['name']
+                    if selection['encoder'] == 'json':
+                        capture_cell.source += '''
+    IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(%s), NULL, list(encoder="json"))
+    ''' % selection['name']
+                    elif selection['encoder'] == 'dataframe':
+                        capture_cell.source += '''
+    library(feather)
+    feather::write_feather(%s, filename)
+    A = readBin(file(filename, 'rb'), 'raw', file.size(filename) + 1000)
+    IRdisplay:::display_raw("application/selective.inference", TRUE, list(encoder="feather", data=as.raw(A)), NULL)
+    ''' % selection['name']
 
             _, selection_outputs = self.run_cell(capture_cell, self.default_index)
 
