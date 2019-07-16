@@ -31,13 +31,14 @@ def check_data_model(resources):
 
 # Read the drop the losers notebook
 #nbpath = 'hello-world-r.ipynb'
-nbpath = 'hello-world-dataframe.ipynb'
+nbpath = 'hello-world-dataframe-r.ipynb'
 nb = nbformat.read(nbpath, nbformat.NO_CONVERT)
 
 mypp = AnalysisPreprocessor(timeout=600)
 resources = {}
 mypp.preprocess(nb, resources = resources)
 print(resources)
+resources['set_selection'] = {'selected_vars': [int(i) for i in resources['set_selection']['selected_vars']['selection']]}
 
 source = """
 print(%(data)s)

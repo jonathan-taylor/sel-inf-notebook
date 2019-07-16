@@ -118,10 +118,10 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                                                           'display({"application/selective.inference":json.dumps(%s)}, metadata={"encoder":"json"}, raw=True)' % selection['name']])
                     elif selection['encoder'] == 'dataframe':
                         capture_cell.source += '\n'.join(['from IPython.display import display',
-                                                          'import json, tempfile',
+                                                          'import json, tempfile, feather',
                                                           'filename = tempfile.mkstemp()[1]',
-                                                          'feather.write_dataframe(%s, filename)',
-                                                          'display({"application/selective.inference":open(filename, "rb").read(), metadata={"encoder":"dataframe"}, raw=True)' % selection['name']])
+                                                          'feather.write_dataframe(%s, filename)' % selection['name'],
+                                                          'display({"application/selective.inference":open(filename, "rb").read()}, metadata={"encoder":"dataframe"}, raw=True)'])
 
                 elif self.km.kernel_name == 'ir':
                     capture_cell.source += '''
