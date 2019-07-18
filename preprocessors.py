@@ -19,25 +19,27 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         """
         Context manager for setting up the class to execute a notebook.
 
-        The assigns `nb` to `self.nb` where it will be modified in-place. It also creates
-        and assigns the Kernel Manager (`self.km`) and Kernel Client(`self.kc`).
+        This assigns the input `nb` to `self.nb` where it will be
+        modified in-place. It also creates and assigns the Kernel
+        Manager (`self.km`) and Kernel Client(`self.kc`).
 
         It is intended to yield to a block that will execute codeself.
 
-        When control returns from the yield it stops the client's zmq channels, shuts
-        down the kernel, and removes the now unused attributes.
+        When control returns from the yield it stops the client's zmq
+        channels, shuts down the kernel, and removes the now unused
+        attributes.
 
         Parameters
         ----------
         nb : NotebookNode
             Notebook being executed.
         resources : dictionary
-            Additional resources used in the conversion process. For example,
-            passing ``{'metadata': {'path': run_path}}`` sets the
-            execution path to ``run_path``.
+            Additional resources used in the conversion process. For
+            example, passing ``{'metadata': {'path': run_path}}`` sets
+            the execution path to ``run_path``.
         km : KernerlManager (optional)
-            Optional kernel manaher. If none is provided, a kernel manager will
-            be created.
+            Optional kernel manaher. If none is provided, a kernel
+            manager will be created.
 
         Returns
         -------
@@ -103,19 +105,24 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
 
     def capture_selection(self, cell, resources):
         """
-        Capture JSON-serialized selection outputs
-        in resources['set_selection'] and resources['fixed_selection']
+        Capture JSON-serialized selection outputs into
+        resources['set_selection'] and resources['fixed_selection']
         """
-        set_selection, fixed_selection = resources['set_selection'], resources['fixed_selection']
+        set_selection = resources['set_selection']
+        fixed_selection = resources['fixed_selection']
 
+        # Generate a new cell after the cell whose metadata contains
+        # the attribute 'capture_selection'
         if 'capture_selection' in cell.metadata:
             capture_cell = nbformat.v4.new_code_cell()
             for selection in cell.metadata['capture_selection']:
                 if self.km.kernel_name == 'python3':
+                    # JSON encoding
                     if selection['encoder'] == 'json':
                         capture_cell.source += '\n'.join(['from IPython.display import display',
                                                           'import json',
                                                           'display({"application/selective.inference":json.dumps(%s)}, metadata={"encoder":"json"}, raw=True)' % selection['name']])
+                    # Base 64 dataframe encoding
                     elif selection['encoder'] == 'dataframe':
                         capture_cell.source += '\n'.join(['from IPython.display import display',
                                                           'import json, tempfile, feather',
@@ -131,9 +138,10 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                     elif selection['encoder'] == 'dataframe':
                         capture_cell.source += '''
     library(feather)
+    filename = tempfile()
     feather::write_feather(%s, filename)
     A = readBin(file(filename, 'rb'), 'raw', file.size(filename) + 1000)
-    IRdisplay:::display_raw("application/selective.inference", TRUE, list(encoder="feather", data=as.raw(A)), NULL)
+    IRdisplay:::display_raw("application/selective.inference", TRUE, NULL, filename, list(encoder="dataframe"))
     ''' % selection['name']
 
             _, selection_outputs = self.run_cell(capture_cell, self.default_index)
@@ -150,18 +158,17 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                 print('DECODER', decoder(output_data))
 
 class AnalysisPreprocessor(SelectiveInferencePreprocessor):
-
     """
-    This preprocessor runs the analysis on the
-    collected data, capturing output that will
-    be conditioned on.
+    This preprocessor runs the analysis on the collected data, capturing
+    output that will be conditioned on.
     """
 
     force_raise_errors = True
     cell_allows_errors = False
 
     def preprocess_cell(self, cell, resources, cell_index):
-        """Executes a single code cell. Must return modified cell and resource dictionary.
+        """Executes a single code cell. Must return modified cell and
+        resource dictionary.
         
         Parameters
         ----------
@@ -264,7 +271,8 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         
 
     def preprocess_cell(self, cell, resources, cell_index):
-        """Executes a single code cell. Must return modified cell and resource dictionary.
+        """Executes a single code cell. Must return modified cell and
+        resource dictionary.
         
         Parameters
         ----------
@@ -337,6 +345,8 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
             return cell
 
     def capture_sufficient_statistics(self, resources):
+        """Assume suff stat is a data frame.
+        """
         if self.km.kernel_name == 'python3':
             source = '''
 %(suff_stat)s = %(suff_stat_map)s(%(data_name)s, """%(fixed_selection)s""");
@@ -360,7 +370,3 @@ print(cat(%(suff_stat)s, sep=","))
             return sufficient_stat
         else:
             return np.array([])
-    
-
-
-
