@@ -1,17 +1,19 @@
-import copy, uuid, json
-from contextlib import contextmanager
-import numpy as np
-
+import copy
+import json
 import nbformat
+import numpy as np
+import uuid
+from contextlib import contextmanager
 from nbconvert.preprocessors import ExecutePreprocessor
 from traitlets import Unicode, Int, Bool, default
+from json_dataframe import base64_to_dataframe
 
 #from json_dataframe import dataframe_to_json, json_to_dataframe, dataframe_to_jsonR, base64_to_dataframe
-from json_dataframe import base64_to_dataframe
 
 class SelectiveInferencePreprocessor(ExecutePreprocessor):
     """
-    Notebook preprocessor for selective inference.
+    Notebook preprocessor for selective inference. Executes cells and
+    stores certain outputs based on cell metadata.
     """
 
     @contextmanager
@@ -58,7 +60,8 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         if km is None:
             self.km, self.kc = self.start_new_kernel(cwd=path)
             try:
-                # Yielding unbound args for more easier understanding and downstream consumption
+                # Yielding unbound args for more easier understanding
+                # and downstream consumption
                 yield nb, self.km, self.kc
             finally:
 #                 self.kc.stop_channels()
@@ -221,10 +224,23 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
 
     def prepend_data_input_code(self, cell):
         """
-        Create a new cell, prepending code to read
-        in data identified in cell metadata.
+        Create a new cell, prepending code to read in data specified in
+        an existing cell's metadata.
 
         If no data input, return cell without modification.
+
+        Parameters
+        ----------
+        cell: NotebookNode cell
+            The cell for which we will prepend code to read in data.
+            This cell should contain the metadata attribute
+            'data_input', whose value is _____
+
+        Returns
+        -------
+        cell_cp: NotebookNode cell
+            A copy of the given cell, prepended with code to read in the
+            data identified in the given cell's metadata.
         """
         if 'data_input' in cell.metadata:
             cell_cp = copy.copy(cell)
@@ -238,10 +254,10 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
 
 class SimulatePreprocessor(SelectiveInferencePreprocessor):
     """
-    This preprocessor reruns the analysis
-    several times, capturing the observed
-    values of variables conditioned on in
-    the analysis.
+    This preprocessor reruns the analysis several times on simulated
+    data (using a simulation procedure specified by the user). Each
+    time, it captures the observed values of variables on which the
+    analysis is conditioned.
     """
 
     data_has_been_simulated = Bool(False)
@@ -329,8 +345,8 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
 
     def prepend_data_input_code(self, cell):
         """
-        Create a new cell, prepending code to read
-        in data identified in cell metadata.
+        Create a new cell, prepending code to read in data identified in
+        cell metadata.
 
         If no data input, return cell without modification.
         """
@@ -345,28 +361,42 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
             return cell
 
     def capture_sufficient_statistics(self, resources):
-        """Assume suff stat is a data frame.
         """
-        if self.km.kernel_name == 'python3':
+        Capture sufficient statistic output into resources['suff_stat'].
+        Assume suff stat is a data frame.
+        """
+        # Create a "phantom code cell" to capture the sufficient
+        # statistics into a variable in the notebook's session
+
+        # Skeleton for source code to capture sufficient statistics
+        if self.km.kernel_name == 'python3':  # source for Python kernel
             source = '''
 %(suff_stat)s = %(suff_stat_map)s(%(data_name)s, """%(fixed_selection)s""");
-print(','.join([str(s) for s in %(suff_stat)s]))
-''' 
-        elif self.km.kernel_name == 'ir':
+print(','.join([str(s) for s in %(suff_stat)s]))''' 
+        elif self.km.kernel_name == 'ir':  # source for R kernel
             source = '''
 %(suff_stat)s = %(suff_stat_map)s(%(data_name)s, "%(fixed_selection)s");
-print(cat(%(suff_stat)s, sep=","))
-'''
+print(cat(%(suff_stat)s, sep=","))'''
+
+        # Generate a cell to fill with the source code specified above
         capture_cell = nbformat.v4.new_code_cell()
-        if 'data_model' in resources and 'sufficient_statistics' in resources['data_model']:
-            capture_cell.source = source % {'suff_stat': 'suff_stat_' + str(uuid.uuid1()).replace('-',''),
-                                            'data_name': self.data_name, 
-                                            'fixed_selection': json.dumps(resources['fixed_selection']),
-                                            'suff_stat_map': resources['data_model']['sufficient_statistics'] 
-                                            }
+        if 'data_model' in resources and 'sufficient_statistics' in \
+                resources['data_model']:
+
+            # Formatting rules for the cell's source code (i.e. variable names)
+            capture_cell.source = source % {'suff_stat': 'suff_stat_' + \
+                    str(uuid.uuid1()).replace('-',''),
+                    'data_name': self.data_name, 
+                    'fixed_selection': json.dumps(resources['fixed_selection']),
+                    'suff_stat_map': resources['data_model']['sufficient_statistics'] 
+            }
+
+            # Run the cell and capture the sufficient statistic output
             outputs = self.run_cell(capture_cell, 0)
-            sufficient_stat = np.array([float(s) for s in outputs[0]['text'].strip().split(',')])
+            sufficient_stat = np.array([float(s) for s in \
+                    outputs[0]['text'].strip().split(',')])
             print(capture_cell.source)
             return sufficient_stat
         else:
             return np.array([])
+            # TODO: throw error message/warning?
