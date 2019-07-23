@@ -1,9 +1,9 @@
-from preprocessors import *
-import copy, uuid, json
-import numpy as np
-
+import copy
+import json
 import nbformat
-
+import numpy as np
+import uuid
+from preprocessors import *
 
 def check_data_model(resources):
 
@@ -19,27 +19,25 @@ def check_data_model(resources):
 # ## Custom Preprocessor Tests
 # 
 # https://github.com/jupyter/nbconvert/blob/master/nbconvert/preprocessors/base.py
-# 
 # According to the docstring for `preprocess()` in `nbconvert.preprocessors.base`,
-# 
 #  > If you wish to apply your preprocessing to each cell, you might want to override preprocess_cell method instead.
-# 
 # Therefore, we focus on writing a custom `preprocess_cell()` function in our subclass.
-
-# In[14]:
-
 
 # Read the drop the losers notebook
 #nbpath = 'notebooks/hello-world-r.ipynb'
 nbpath = 'notebooks/hello-world-dataframe-r.ipynb'
 nb = nbformat.read(nbpath, nbformat.NO_CONVERT)
 
+# Initialize a preprocessor for selective inference
 mypp = AnalysisPreprocessor(timeout=600)
-resources = {}
+resources = {}  # Empty dict to store inference info
+
+# Preprocess the notebook - saves info to `resources`
 mypp.preprocess(nb, resources = resources)
 print(resources)
 resources['set_selection'] = {'selected_vars': [int(i) for i in resources['set_selection']['selected_vars']['selection']]}
 
+# Generate a new cell in the notebook
 source = """
 print(%(data)s)
 %(resample)s(%(data)s, '%(fixed)s')
@@ -54,5 +52,3 @@ print(%(data)s)
 test_cell = nbformat.v4.new_code_cell(source=source)
 nb.cells.append(test_cell)
 print(mypp.preprocess_cell(test_cell, resources, 0), 'aha')
-
-
