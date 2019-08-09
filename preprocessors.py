@@ -231,8 +231,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                     'feather.write_dataframe(%s, filename)' % suff_stat_var,
                     'display({"application/selective.inference":open(filename, "rb").read()}, metadata={"encoder":"dataframe"}, raw=True)'])
         elif self.km.kernel_name == 'ir':
-            # TODO: Cast suff stat as dataframe if this doesn't work already
-            source = ['library(feather)',
+            source = ['\nlibrary(feather)',
                       'filename = tempfile()',
                       'feather::write_feather(%s, filename)',
                       'A = readBin(file(filename, "rb"), "raw", file.size(filename) + 1000)',
@@ -240,19 +239,21 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             source = '\n'.join(source) % suff_stat_var
         capture_cell.source += source
 
+        # Run the phantom cell and save its output (suff stat in base 64)
+        _, cell_output = self.run_cell(capture_cell, self.default_index)
+
         print("\n-- START CHECK --")
         print("SUFF STAT CAPTURE SOURCE:")
         print(capture_cell.source)
+        print(cell_output)
         print("-- END CHECK --\n")
 
-        # Run the phantom cell and save its output (suff stat in base 64)
-        _, cell_output = self.run_cell(capture_cell, self.default_index)
         suff_stat_base64 = cell_output[0]['data']['application/selective.inference']
-        print('SUFF STAT BASE 64 OUTPUT:\n', suff_stat_base64)
+        #print('SUFF STAT BASE 64 OUTPUT:\n', suff_stat_base64)
 
         # Convert the base 64 output into a dataframe
         suff_stat = base64_to_dataframe(suff_stat_base64)
-        print('SUFF STAT DATAFRAME:\n', suff_stat)
+        #print('SUFF STAT DATAFRAME:\n', suff_stat)
 
         # Save suff stat dataframe into resources
         resources['suff_stat'] = suff_stat
@@ -334,18 +335,16 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         if cell.cell_type != 'code' or not cell.source.strip():
             return cell, resources
 
-        # capturing the data
-
         cell = self.prepend_data_input_code(cell)
+        """
         print('ANALYSIS CELL SOURCE')
         print('-'*20)
         print(cell.source)
         print('-'*20)
-
+        """
         _, outputs = self.run_cell(cell, cell_index)
         
-        # capturing selection
-
+        # Capture selection
         self.capture_selection(cell, resources)
 
         if 'data_model' in cell.metadata:
@@ -482,13 +481,11 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         """
         
         self.simulate_data(resources)
-        #stop
         resources.setdefault('fixed_selection', {})
         resources.setdefault('set_selection', {})
         resources.setdefault('data_model', {})
         resources.setdefault('data_name', self.data_name)
 
-        # Original code from execute.py
         if cell.cell_type != 'code' or not cell.source.strip():
             return cell, resources
 
@@ -507,6 +504,3 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         cell.outputs = outputs
 
         return cell, resources
-
-
-

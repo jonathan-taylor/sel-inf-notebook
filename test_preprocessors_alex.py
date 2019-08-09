@@ -7,7 +7,7 @@ import uuid
 import preprocessors
 
 # Read a notebook (on which to test the preprocessor)
-nbpath = 'notebooks/hello-world-dataframe.ipynb'
+nbpath = 'notebooks/hello-world-dataframe-r.ipynb'
 nb = nbformat.read(nbpath, nbformat.NO_CONVERT)
 
 # Initialize the analysis preprocessor (for full dataset)
@@ -20,11 +20,12 @@ nb, resources = analysis_pp.preprocess(nb, resources=resources)
 print("-- ANALYSIS COMPLETE --")
 
 # Initialize the simulation preprocessor (for simulated data)
+"""
 simulate_pp = preprocessors.SimulatePreprocessor(timeout=600)
 simulate_pp.data_name = analysis_pp.data_name
 nb, resources = simulate_pp.preprocess(nb, resources=resources,
                                        km=analysis_pp.km)
-#print("-- RESOURCES FINAL --\n", resources)
+print("-- RESOURCES FINAL --\n", resources)
 print("-- SIMULATION COMPLETE --")
 
 # Shut down the kernel
@@ -33,6 +34,7 @@ print("-- SIMULATION COMPLETE --")
 # passed to `simulate_pp`.
 simulate_pp.kc.stop_channels()
 simulate_pp.km.shutdown_kernel(now=simulate_pp.shutdown_kernel == 'immediate')
+"""
 
 #for attr in ['nb', 'km', 'kc']:
 #    delattr(simulate_pp, attr)
