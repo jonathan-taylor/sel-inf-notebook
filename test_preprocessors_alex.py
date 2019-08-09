@@ -10,24 +10,29 @@ import preprocessors
 nbpath = 'notebooks/hello-world-dataframe.ipynb'
 nb = nbformat.read(nbpath, nbformat.NO_CONVERT)
 
-# Initialize a preprocessor for selective inference
-mypp = preprocessors.AnalysisPreprocessor(timeout=600)
+# Initialize the analysis preprocessor (for full dataset)
+analysis_pp = preprocessors.AnalysisPreprocessor(timeout=600)
 resources = {}  # empty dict to store outputs etc.
 
 # Preprocess the notebook; save info into `resources`
-#mypp.preprocess(nb, resources=resources)
-nb, resources = mypp.preprocess(nb, resources=resources)
-print("-- RESOURCES FINAL --\n", resources)
+nb, resources = analysis_pp.preprocess(nb, resources=resources)
+#print("-- RESOURCES FINAL --\n", resources)
+print("-- ANALYSIS COMPLETE --")
+
+# Initialize the simulation preprocessor (for simulated data)
+simulate_pp = preprocessors.SimulatePreprocessor(timeout=600)
+simulate_pp.data_name = analysis_pp.data_name
+nb, resources = simulate_pp.preprocess(nb, resources=resources,
+                                       km=analysis_pp.km)
+#print("-- RESOURCES FINAL --\n", resources)
+print("-- SIMULATION COMPLETE --")
 
 # Shut down the kernel
-#mypp.kc.stop_channels()
-#mypp.km.shutdown_kernel(now=mypp.shutdown_kernel == 'immediate')
-#for attr in ['nb', 'km', 'kc']:
-#    delattr(mypp, attr)
+# NOTE: We only need to apply these commands to `simulate_pp` and not
+# `analysis_pp` because the kernel manager from `analysis_pp` gets
+# passed to `simulate_pp`.
+simulate_pp.kc.stop_channels()
+simulate_pp.km.shutdown_kernel(now=simulate_pp.shutdown_kernel == 'immediate')
 
-"""
-sim_pp = preprocessors.SimulatePreprocessor(timeout=600)
-resources = {}
-sim_pp.preprocess(nb, resources = resources)
-print(resources)
-"""
+#for attr in ['nb', 'km', 'kc']:
+#    delattr(simulate_pp, attr)

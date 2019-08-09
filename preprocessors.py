@@ -77,7 +77,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             if not km.has_kernel:
                 km.start_kernel(extra_arguments=self.extra_arguments, **kwargs)
             self.kc = km.client()
-
+            print('has a kernel')
             self.kc.start_channels()
             try:
                 self.kc.wait_for_ready(timeout=self.startup_timeout)
@@ -88,13 +88,15 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             try:
                 yield nb, self.km, self.kc
             finally:
-                for attr in ['nb', 'km', 'kc']:
-                    delattr(self, attr)
+                print("hereiam?"*10)
+                pass
+#                for attr in ['nb', 'km', 'kc']:
+#                    delattr(self, attr)
 
 
     data_name = Unicode()
     default_index = Int(-1)
-
+    processing_mode = Unicode()
 
     @default('data_name')
     def _default_data_name(self):
@@ -205,8 +207,14 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             source = '%(suff_stat)s = %(suff_stat_map)s(%(data_name)s, "%(fixed_selection)s");'
         # Apply formatting rules to the source code (i.e. fill in
         # variable names)
+
+        if self.processing_mode == 'analysis':
+            data_name = self.data_name
+        else:
+            data_name = self.simulated_data
+        
         capture_cell.source = source % {'suff_stat': suff_stat_var,
-                'data_name': self.data_name, 
+                'data_name': data_name, 
                 'fixed_selection': json.dumps(resources['fixed_selection']),
                 'suff_stat_map': resources['data_model']['sufficient_statistics'] 
         }
@@ -258,7 +266,7 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
     """
     force_raise_errors = True
     cell_allows_errors = False
-
+    processing_mode = Unicode('analysis')
 
     def preprocess(self, nb, resources=None, km=None):
         """Preprocess notebook executing each code cell. The input
@@ -329,6 +337,11 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         # capturing the data
 
         cell = self.prepend_data_input_code(cell)
+        print('ANALYSIS CELL SOURCE')
+        print('-'*20)
+        print(cell.source)
+        print('-'*20)
+
         _, outputs = self.run_cell(cell, cell_index)
         
         # capturing selection
@@ -418,6 +431,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
     analysis is conditioned.
     """
     data_has_been_simulated = Bool(False)
+    processing_mode = Unicode('simulation')
 
     simulated_data = Unicode()
     @default('simulated_data')
@@ -427,19 +441,28 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
     def simulate_data(self, resources):
         # all of the collected data will have to be available at runtime if we want to bootstrap, say
         if not self.data_has_been_simulated:
+            print('simulating data')
             if self.km.kernel_name == 'python3':
-                source = '\n'.join(['if "%(simulated_data)s" not in locals():', '    %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")']) 
+                print('do i get here?')
+                source = '\n'.join(['if "%(simulated_data)s" not in locals():', '    %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")']) + '\n'
+                source += '\n'.join(['for key in %(simulated_data)s.keys():',
+                        '    locals()[key] = %(simulated_data)s[key]'])
             elif self.km.kernel_name == 'ir':
                 source = 'if (! exists("%(simulate_data)s")) { %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s") }' % {'data':self.data_name}
+                # TODO: mimic same thing from python
 
-            source = source % {'simulated_data':self.simulate_data,
+            source = source % {'simulated_data':self.simulated_data,
                                'simulate':resources.get('data_model', {}).get('resample_data', 'function_not_found'),
                                'data_name':self.data_name,
                                'fixed_selection': json.dumps(resources.get("fixed_selection", {}))}
-            return source
+            
             simulate_cell = nbformat.v4.new_code_cell(source=source)
+            print('SIMULATE DATA SOURCE simulate_data')
+            print('-'*20)
+            print(simulate_cell.source)
+            print('-'*20)
             self.run_cell(simulate_cell, self.default_index)
-
+            
             self.data_has_been_simulated = True
         
 
@@ -459,7 +482,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         """
         
         self.simulate_data(resources)
-
+        #stop
         resources.setdefault('fixed_selection', {})
         resources.setdefault('set_selection', {})
         resources.setdefault('data_model', {})
@@ -469,8 +492,10 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         if cell.cell_type != 'code' or not cell.source.strip():
             return cell, resources
 
-        # Capturing the data
-        cell = self.prepend_simulation_data_code(cell)
+        print('SIMULATION CELL SOURCE')
+        print('-'*20)
+        print(cell.source)
+        print('-'*20)
         outputs = self.run_cell(cell, cell_index)
         
         # Capture selection
@@ -479,42 +504,9 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         # capturing sufficient stats
         self.capture_sufficient_statistics(resources)
 
-        # Populate `resources` dictionary with information from notebook
-        # metadata - hooks used to define target and generative model
-        if 'data_model' in cell.metadata:
-            for var in ['estimators', 'sufficient_statistics', 'resample_data']:
-                resources['data_model'][var] = cell.metadata['data_model'][var]
-
         cell.outputs = outputs
-
-        if not self.allow_errors:
-            for out in outputs:
-                if out.output_type == 'error':
-                    pattern = u"""\
-                        An error occurred while executing the following cell:
-                        ------------------
-                        {cell.source}
-                        ------------------
-
-                        {out.ename}: {out.evalue}
-                        """
-                    msg = pattern.format(out=out, cell=cell)
-                    raise ValueError(msg)
 
         return cell, resources
 
-    def prepend_data_input_code(self, cell):
-        """Create a new cell, prepending code to read in data identified
-        in cell metadata.
 
-        If no data input, return cell without modification.
-        """
-        if 'data_input' in cell.metadata:
-            cell_cp = copy.copy(cell)
-            cell_cp.source = self.define_data + '\n'
-            for variable_name, data_file in cell.metadata['data_input']:
-                cell_cp.source += self.datafile_input_source(variable_name, data_file) + '\n'
-            cell_cp.source += cell.source                        
-            return cell_cp
-        else:
-            return cell
+
