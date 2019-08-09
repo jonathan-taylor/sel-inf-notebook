@@ -286,6 +286,89 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
             return cell
 
 
+    def capture_sufficient_statistics(self, resources):
+        """Capture sufficient statistic output into
+        resources['suff_stat']. Assume suff stat is a data frame.
+
+        Parameters
+        ----------
+        resources : dictionary
+            Information extracted from the notebook's metadata
+        """
+        # Create a "phantom code cell" to capture the sufficient
+        # statistics into a variable in the notebook's session
+
+        # Skeleton for source code to capture sufficient statistics
+        if self.km.kernel_name == 'python3':  # source for Python kernel
+            source = '''
+%(suff_stat)s = %(suff_stat_map)s(%(data_name)s, """%(fixed_selection)s""");
+print(','.join([str(s) for s in %(suff_stat)s]))''' 
+        elif self.km.kernel_name == 'ir':  # source for R kernel
+            source = '''
+%(suff_stat)s = %(suff_stat_map)s(%(data_name)s, "%(fixed_selection)s");
+print(cat(%(suff_stat)s, sep=","))'''
+
+        # Generate a cell to fill with the source code specified above
+        capture_cell = nbformat.v4.new_code_cell()
+        if ('data_model' in resources) and \
+                ('sufficient_statistics' in resources['data_model']):
+
+            # Apply formatting rules for the cell's source code (i.e.
+            # fill w/ variable names)
+            suff_stat_var = 'suff_stat_' + str(uuid.uuid1()).replace('-', '')
+            capture_cell.source = source % {'suff_stat': suff_stat_var,
+                    'data_name': self.data_name, 
+                    'fixed_selection': json.dumps(resources['fixed_selection']),
+                    'suff_stat_map': resources['data_model']['sufficient_statistics'] 
+            }
+
+            # Append additional source code to output the raw base64
+            # encoding of the sufficient statistic dataframe (feather)
+            if self.km.kernel_name == 'python3':
+                capture_cell.source += '\n'.join([
+                        'from IPython.display import display',
+                        'import json, tempfile, feather',
+                        'filename = tempfile.mkstemp()[1]',
+                        'feather.write_dataframe(%s, filename)' % suff_stat_var,
+                        'display({"application/selective.inference":open(filename, "rb").read()}, metadata={"encoder":"dataframe"}, raw=True)'])
+            elif self.km.kernel_name == 'ir':
+                source = ['library(feather)',
+                          'filename = tempfile()',
+                          'feather::write_feather(%s, filename)',
+                          'A = readBin(file(filename, "rb"), "raw", file.size(filename) + 1000)',
+                          'IRdisplay:::display_raw("application/selective.inference", TRUE, NULL, filename, list(encoder="dataframe"))']
+                source = '\n'.join(source) % suff_stat_var
+            capture_cell.source += source
+
+            _, suff_stats = self.run_cell(capture_cell, self.default_index)
+            print(suff_stats)
+
+            # Base 64 string
+            output_data = suff_stats['data']['application/selective.inference']
+            print('OUTPUT:\n', output_data)
+
+            # TODO: fix decoder
+            """
+            decoder = {'json':json.loads,
+                       'dataframe':base64_to_dataframe,
+                       }.get(output.metadata['encoder'], 'json')
+                {'set':set_selection,
+                 'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], decoder(output_data))
+                print('DECODER:\n', decoder(output_data))
+            """
+
+            # Run the cell and capture the sufficient statistic output
+            # TODO: turn below into robust capture
+            #outputs = self.run_cell(capture_cell, 0)
+            #sufficient_stat = np.array([float(s) for s in \
+            #        outputs[0]['text'].strip().split(',')])
+            print(capture_cell.source)
+            return sufficient_stat
+        else:
+            return np.array([])
+            # TODO: throw error message/warning?
+
+
 class SimulatePreprocessor(SelectiveInferencePreprocessor):
     """This preprocessor reruns the analysis several times on simulated
     data (using a simulation procedure specified by the user). Each
@@ -394,83 +477,3 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         else:
             return cell
 
-
-    def capture_sufficient_statistics(self, resources):
-        """Capture sufficient statistic output into
-        resources['suff_stat']. Assume suff stat is a data frame.
-
-        Parameters
-        ----------
-        resources : dictionary
-            Information extracted from the notebook's metadata
-        """
-        # Create a "phantom code cell" to capture the sufficient
-        # statistics into a variable in the notebook's session
-
-        # Skeleton for source code to capture sufficient statistics
-        if self.km.kernel_name == 'python3':  # source for Python kernel
-            source = '''
-%(suff_stat)s = %(suff_stat_map)s(%(data_name)s, """%(fixed_selection)s""");
-print(','.join([str(s) for s in %(suff_stat)s]))''' 
-        elif self.km.kernel_name == 'ir':  # source for R kernel
-            source = '''
-%(suff_stat)s = %(suff_stat_map)s(%(data_name)s, "%(fixed_selection)s");
-print(cat(%(suff_stat)s, sep=","))'''
-
-        # Generate a cell to fill with the source code specified above
-        capture_cell = nbformat.v4.new_code_cell()
-        if ('data_model' in resources) and \
-                ('sufficient_statistics' in resources['data_model']):
-
-            # Apply formatting rules for the cell's source code (i.e.
-            # fill w/ variable names)
-            suff_stat_var = 'suff_stat_' + str(uuid.uuid1()).replace('-', '')
-            capture_cell.source = source % {'suff_stat': suff_stat_var,
-                    'data_name': self.data_name, 
-                    'fixed_selection': json.dumps(resources['fixed_selection']),
-                    'suff_stat_map': resources['data_model']['sufficient_statistics'] 
-            }
-
-            # Append additional source code to output the raw base64
-            # encoding of the sufficient statistic dataframe (feather)
-            if self.km.kernel_name == 'python3':
-                capture_cell.source += '\n'.join([
-                        'from IPython.display import display',
-                        'import json, tempfile, feather',
-                        'filename = tempfile.mkstemp()[1]',
-                        'feather.write_dataframe(%s, filename)' % suff_stat_var,
-                        'display({"application/selective.inference":open(filename, "rb").read()}, metadata={"encoder":"dataframe"}, raw=True)'])
-            elif self.km.kernel_name == 'ir':
-                source = ['library(feather)',
-                          'filename = tempfile()',
-                          'feather::write_feather(%s, filename)',
-                          'A = readBin(file(filename, "rb"), "raw", file.size(filename) + 1000)',
-                          'IRdisplay:::display_raw("application/selective.inference", TRUE, NULL, filename, list(encoder="dataframe"))']
-                source = '\n'.join(source) % suff_stat_var
-            capture_cell.source += source
-
-            _, suff_stats = self.run_cell(capture_cell, self.default_index)
-            print(suff_stats)
-
-            # Base 64 string
-            output_data = suff_stats['data']['application/selective.inference']
-            print('OUTPUT:\n', output_data)
-
-            # TODO: fix decoder
-            decoder = {'json':json.loads,
-                       'dataframe':base64_to_dataframe,
-                       }.get(output.metadata['encoder'], 'json')
-                {'set':set_selection,
-                 'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], decoder(output_data))
-                print('DECODER:\n', decoder(output_data))
-
-            # Run the cell and capture the sufficient statistic output
-            # TODO: turn below into robust capture
-            #outputs = self.run_cell(capture_cell, 0)
-            #sufficient_stat = np.array([float(s) for s in \
-            #        outputs[0]['text'].strip().split(',')])
-            print(capture_cell.source)
-            return sufficient_stat
-        else:
-            return np.array([])
-            # TODO: throw error message/warning?
