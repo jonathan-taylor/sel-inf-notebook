@@ -194,48 +194,36 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         # Generate an empty code cell
         capture_cell = nbformat.v4.new_code_cell()
 
-        # Skeleton for source code to capture sufficient statistics
-        if self.km.kernel_name == 'python3':  # source for Python kernel
-            source = ['%(suff_stat)s = %(suff_stat_map)s(%(data_name)s, """%(fixed_selection)s""");',
-                    'print(",".join([str(s) for s in %(suff_stat)s]))']
-            source = '\n'.join(source)
-        elif self.km.kernel_name == 'ir':  # source for R kernel
-            source = ['%(suff_stat)s = %(suff_stat_map)s(%(data_name)s, "%(fixed_selection)s");',
-                    'print(cat(%(suff_stat)s, sep=","))']
-            source = '\n'.join(source)
+        # Variable name (in notebook kernel) for sufficient statistic
+        suff_stat_var = 'suff_stat_' + str(uuid.uuid1()).replace('-', '')
 
+        # [Source code for phantom notebook cell]
+        # Compute sufficient statistic and save it to a variable
+        if self.km.kernel_name == 'python3':  # source for Python kernel
+            source = '%(suff_stat)s = %(suff_stat_map)s(%(data_name)s, "%(fixed_selection)s");'
+        elif self.km.kernel_name == 'ir':  # source for R kernel
+            source = '%(suff_stat)s = %(suff_stat_map)s(%(data_name)s, "%(fixed_selection)s");'
         # Apply formatting rules to the source code (i.e. fill in
         # variable names)
-        suff_stat_var = 'suff_stat_' + str(uuid.uuid1()).replace('-', '')
         capture_cell.source = source % {'suff_stat': suff_stat_var,
                 'data_name': self.data_name, 
                 'fixed_selection': json.dumps(resources['fixed_selection']),
                 'suff_stat_map': resources['data_model']['sufficient_statistics'] 
         }
 
-        print("\n-- CHECK --")
-        print("SOURCE")
-        print(capture_cell.source)
-        print("\nOUTPUT")
-        _, cell_output = self.run_cell(capture_cell, self.default_index)
-        print(cell_output)
-        print("\nORIGINAL VER")
-        sufficient_stat = np.array([float(s) for s in \
-                cell_output[0]['text'].strip().split(',')])
-        print(sufficient_stat)
-        print("-- CHECK --\n")
-
-        """
-        # Append additional source code to output the raw base64
-        # encoding of the sufficient statistic dataframe (feather)
+        # [Source code for phantom notebook cell]
+        # Save the sufficient statistic as a feather file and output
+        # the file's raw bytecode as base 64
         if self.km.kernel_name == 'python3':
             source = '\n'.join([
                     'from IPython.display import display',
-                    'import json, tempfile, feather',
+                    'import json, tempfile, pandas, feather',
                     'filename = tempfile.mkstemp()[1]',
+                    '%s = pandas.DataFrame({"suff_stat":%s})' % (suff_stat_var, suff_stat_var),
                     'feather.write_dataframe(%s, filename)' % suff_stat_var,
                     'display({"application/selective.inference":open(filename, "rb").read()}, metadata={"encoder":"dataframe"}, raw=True)'])
         elif self.km.kernel_name == 'ir':
+            # TODO: Cast suff stat as dataframe if this doesn't work already
             source = ['library(feather)',
                       'filename = tempfile()',
                       'feather::write_feather(%s, filename)',
@@ -244,6 +232,15 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             source = '\n'.join(source) % suff_stat_var
         capture_cell.source += source
 
+        print("\n-- START CHECK --")
+        print("SOURCE")
+        print(capture_cell.source)
+        print("\nOUTPUT")
+        _, cell_output = self.run_cell(capture_cell, self.default_index)
+        print(cell_output)
+        print("-- END CHECK --\n")
+
+        """
         _, suff_stats = self.run_cell(capture_cell, self.default_index)
 
         # Base 64 string
@@ -258,8 +255,8 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
              'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], decoder(output_data))
             print('DECODER:\n', decoder(output_data))
 
-        return resources
         """
+        return resources
 
         # Run the cell and capture the sufficient statistic output
         # TODO: turn below into robust capture
