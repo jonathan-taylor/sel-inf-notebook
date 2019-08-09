@@ -7,7 +7,7 @@ import uuid
 import preprocessors
 
 # Read a notebook (on which to test the preprocessor)
-nbpath = 'notebooks/hello-world-dataframe-r.ipynb'
+nbpath = 'notebooks/hello-world-dataframe.ipynb'
 nb = nbformat.read(nbpath, nbformat.NO_CONVERT)
 
 # Initialize a preprocessor for selective inference
@@ -15,8 +15,15 @@ mypp = preprocessors.AnalysisPreprocessor(timeout=600)
 resources = {}  # empty dict to store outputs etc.
 
 # Preprocess the notebook; save info into `resources`
-mypp.preprocess(nb, resources = resources)
-print(resources)
+#mypp.preprocess(nb, resources=resources)
+nb, resources = mypp.preprocess(nb, resources=resources)
+print("-- RESOURCES FINAL --\n", resources)
+
+# Shut down the kernel
+#mypp.kc.stop_channels()
+#mypp.km.shutdown_kernel(now=mypp.shutdown_kernel == 'immediate')
+#for attr in ['nb', 'km', 'kc']:
+#    delattr(mypp, attr)
 
 """
 sim_pp = preprocessors.SimulatePreprocessor(timeout=600)
