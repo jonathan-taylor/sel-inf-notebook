@@ -70,7 +70,6 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
 
                 #for attr in ['nb', 'km', 'kc']:
                 #    delattr(self, attr)
-                print("hereiam?"*10)
                 pass
         else:
             self.km = km
@@ -88,7 +87,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             try:
                 yield nb, self.km, self.kc
             finally:
-                print("hereiam?"*10)
+                #print("hereiam?"*10)
                 pass
 #                for attr in ['nb', 'km', 'kc']:
 #                    delattr(self, attr)
@@ -160,13 +159,13 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             for selection, output in zip(cell.metadata['capture_selection'],
                                          selection_outputs):
                 output_data = output['data']['application/selective.inference'] # a string
-                print('OUTPUT:\n', output_data)
+                #print('OUTPUT:\n', output_data)
                 decoder = {'json':json.loads,
                            'dataframe':base64_to_dataframe,
                            }.get(output.metadata['encoder'], 'json')
                 {'set':set_selection,
                  'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], decoder(output_data))
-                print('DECODER:\n', decoder(output_data))
+                #print('DECODER:\n', decoder(output_data))
 
 
     def capture_sufficient_statistics(self, resources):
@@ -242,11 +241,13 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         # Run the phantom cell and save its output (suff stat in base 64)
         _, cell_output = self.run_cell(capture_cell, self.default_index)
 
+        """
         print("\n-- START CHECK --")
         print("SUFF STAT CAPTURE SOURCE:")
         print(capture_cell.source)
         print(cell_output)
         print("-- END CHECK --\n")
+        """
 
         suff_stat_base64 = cell_output[0]['data']['application/selective.inference']
         #print('SUFF STAT BASE 64 OUTPUT:\n', suff_stat_base64)
@@ -446,9 +447,13 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
                 source = '\n'.join(['if "%(simulated_data)s" not in locals():', '    %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")']) + '\n'
                 source += '\n'.join(['for key in %(simulated_data)s.keys():',
                         '    locals()[key] = %(simulated_data)s[key]'])
+
             elif self.km.kernel_name == 'ir':
-                source = 'if (! exists("%(simulate_data)s")) { %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s") }' % {'data':self.data_name}
-                # TODO: mimic same thing from python
+                #source = 'if (! exists("%(simulate_data)s")) { %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s") }' % {'data':self.data_name}
+                source = 'if (! exists("%(simulated_data)s")) { %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s") }'
+                source += '\n'.join(['\nfor(key in %(simulated_data)s) {',
+                                     '  assign(key, %(simulated_data)s[key])',
+                                     '}'])
 
             source = source % {'simulated_data':self.simulated_data,
                                'simulate':resources.get('data_model', {}).get('resample_data', 'function_not_found'),
@@ -456,10 +461,12 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
                                'fixed_selection': json.dumps(resources.get("fixed_selection", {}))}
             
             simulate_cell = nbformat.v4.new_code_cell(source=source)
+            """
             print('SIMULATE DATA SOURCE simulate_data')
             print('-'*20)
             print(simulate_cell.source)
             print('-'*20)
+            """
             self.run_cell(simulate_cell, self.default_index)
             
             self.data_has_been_simulated = True
@@ -489,10 +496,12 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         if cell.cell_type != 'code' or not cell.source.strip():
             return cell, resources
 
+        """
         print('SIMULATION CELL SOURCE')
         print('-'*20)
         print(cell.source)
         print('-'*20)
+        """
         outputs = self.run_cell(cell, cell_index)
         
         # Capture selection
