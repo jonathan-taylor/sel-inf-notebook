@@ -233,36 +233,23 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         capture_cell.source += source
 
         print("\n-- START CHECK --")
-        print("SOURCE")
+        print("SUFF STAT CAPTURE SOURCE:")
         print(capture_cell.source)
-        print("\nOUTPUT")
-        _, cell_output = self.run_cell(capture_cell, self.default_index)
-        print(cell_output)
         print("-- END CHECK --\n")
 
-        """
-        _, suff_stats = self.run_cell(capture_cell, self.default_index)
+        # Run the phantom cell and save its output (suff stat in base 64)
+        _, cell_output = self.run_cell(capture_cell, self.default_index)
+        suff_stat_base64 = cell_output[0]['data']['application/selective.inference']
+        print('SUFF STAT BASE 64 OUTPUT:\n', suff_stat_base64)
 
-        # Base 64 string
-        output_data = suff_stats['data']['application/selective.inference']
-        print('OUTPUT:\n', output_data)
+        # Convert the base 64 output into a dataframe
+        suff_stat = base64_to_dataframe(suff_stat_base64)
+        print('SUFF STAT DATAFRAME:\n', suff_stat)
 
-        # TODO: fix decoder
-        decoder = {'json':json.loads,
-                   'dataframe':base64_to_dataframe,
-                   }.get(output.metadata['encoder'], 'json')
-            {'set':set_selection,
-             'fixed':fixed_selection}[selection['selection_type']].setdefault(selection['name'], decoder(output_data))
-            print('DECODER:\n', decoder(output_data))
+        # Save suff stat dataframe into resources
+        resources['suff_stat'] = suff_stat
 
-        """
         return resources
-
-        # Run the cell and capture the sufficient statistic output
-        # TODO: turn below into robust capture
-        #outputs = self.run_cell(capture_cell, 0)
-        #sufficient_stat = np.array([float(s) for s in \
-        #        outputs[0]['text'].strip().split(',')])
 
 
 class AnalysisPreprocessor(SelectiveInferencePreprocessor):
