@@ -126,6 +126,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         # Generate a new cell after the cell whose metadata contains
         # the attribute 'capture_selection'
         if 'capture_selection' in cell.metadata:
+            resources['selection_type'] = cell.metadata['capture_selection'][0]['selection_type']
             capture_cell = nbformat.v4.new_code_cell()
             for selection in cell.metadata['capture_selection']:
                 if self.km.kernel_name == 'python3':
@@ -439,7 +440,8 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         return 'simulated_data_' + str(uuid.uuid1()).replace('-','') 
 
     def simulate_data(self, resources):
-        # all of the collected data will have to be available at runtime if we want to bootstrap, say
+        # all of the collected data will have to be available at runtime
+        # if we want to bootstrap, say
         if not self.data_has_been_simulated:
             print('simulating data')
             if self.km.kernel_name == 'python3':
@@ -469,7 +471,9 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
             """
             self.run_cell(simulate_cell, self.default_index)
             
-            self.data_has_been_simulated = True
+            # TODO: Remove data_has_been_simulated logic so that it simulates
+            # each time?
+            #self.data_has_been_simulated = True
         
 
     def preprocess_cell(self, cell, resources, cell_index):
