@@ -33,19 +33,27 @@ else:
 print("Selection Type:", selection_type)
 
 # Save selection and sufficient statistic
-selected_vars = resources[selection_var]['selected_vars']
-suff_stat = resources['suff_stat']
+selected_vars_init = resources[selection_var]['selected_vars']
+suff_stat_init = resources['suff_stat']
 
-print("Suff Stat:\n", suff_stat, "\n")
+print("Suff Stat:\n", suff_stat_init, "\n")
 
-#print(selected_vars)
-#print(suff_stat)
+#print(selected_vars_init)
+#print(suff_stat_init)
 
 print("\n-- ANALYSIS COMPLETE --\n")
 
 # Simulation -----------------------------------------------------------
 
 n_simulations = 3
+
+# Generate empty numpy arrays to fill with simulated selection and
+# suff stat
+selected_vars_dim = np.shape(selected_vars_init)
+selected_vars_sim = np.empty((n_simulations,) + selected_vars_dim)
+
+suff_stat_dim = np.shape(suff_stat_init)
+suff_stat_sim = np.empty((n_simulations,) + suff_stat_dim)
 
 # Initialize the simulation preprocessor (for simulated data)
 simulate_pp = preprocessors.SimulatePreprocessor(timeout=600)
@@ -60,8 +68,13 @@ for i in range(n_simulations):
                                            km=simulate_pp.km)
     selected_vars = resources[selection_var]['selected_vars']
     suff_stat = resources['suff_stat']
+
+    selected_vars_sim[i] = selected_vars
+    suff_stat_sim[i] = suff_stat
     print("Suff Stat:\n", suff_stat, "\n")
     print("\n-- SIMULATION %s COMPLETE --\n" % (i + 1))
+
+# Cleaning up / shutting down ------------------------------------------
 
 # Shut down the kernel
 # NOTE: We only need to apply these commands to `simulate_pp` and not
@@ -72,3 +85,28 @@ simulate_pp.km.shutdown_kernel(now=simulate_pp.shutdown_kernel == 'immediate')
 
 #for attr in ['nb', 'km', 'kc']:
 #    delattr(simulate_pp, attr)
+
+# NOTE: Some issues arise when running the script more than once.
+# It seems that this script does not kill the R sessions it creates -
+# we need to run `killall R` in bash.
+
+# Selection indicators -------------------------------------------------
+
+print("Selection Type:", selection_type)
+
+# 1D array of indicators for selection event for each simulation
+selection = np.empty(n_simulations)
+
+# 'Lee'-type selection - selected
+if selection_type == 'set':
+    pass
+
+# 'Liu'-type selection - full
+elif selection_type == 'fixed':
+    for i in range(n_simulations):
+        selection[i] = np.array_equal(selected_vars_sim[i], selected_vars_init)
+
+else:
+    print('WARNING: Unspecified selection type')
+
+print(selection)

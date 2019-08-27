@@ -301,6 +301,7 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
             self.log.info("Executing notebook with kernel: %s" % self.kernel_name)
 
             # Preprocess each cell of the notebook
+            # TODO: use super(AnalysisPreprocessor)?
             nb, resources = super(ExecutePreprocessor, self).preprocess(nb, resources)
 
             # Collect sufficient statistics
@@ -474,7 +475,51 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
             # TODO: Remove data_has_been_simulated logic so that it simulates
             # each time?
             #self.data_has_been_simulated = True
-        
+
+
+    def preprocess(self, nb, resources=None, km=None):
+        """Preprocess notebook executing each code cell. The input
+        argument `nb` is modified in-place.
+
+        Parameters
+        ----------
+        nb : NotebookNode
+            Notebook being executed.
+        resources : dictionary (optional)
+            Additional resources used in the conversion process. For example,
+            passing ``{'metadata': {'path': run_path}}`` sets the
+            execution path to ``run_path``.
+        km: KernelManager (optional)
+            Optional kernel manager. If none is provided, a kernel manager will
+            be created.
+
+        Returns
+        -------
+        nb : NotebookNode
+            The executed notebook.
+        resources : dictionary
+            Additional resources used in the conversion process.
+        """
+        if not resources:
+            resources = {}
+
+        with self.setup_preprocessor(nb, resources, km=km):
+            # nbconvert overhead
+            self.log.info("Executing notebook with kernel: %s" % self.kernel_name)
+
+            # actual preprocessing
+            # NOTE: this differs from AnalysisPreprocessor in that
+            # we simulate data first
+            self.simulate_data(resources)
+            nb, resources = super(ExecutePreprocessor, self).preprocess(nb, resources)
+
+            # nbconvert overhead
+            info_msg = self._wait_for_reply(self.kc.kernel_info())
+            nb.metadata['language_info'] = info_msg['content']['language_info']
+            self.set_widgets_metadata()
+
+        return nb, resources
+
 
     def preprocess_cell(self, cell, resources, cell_index):
         """Executes a single code cell. Must return modified cell and
@@ -490,8 +535,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         index : int
             Index of the cell being processed
         """
-        
-        self.simulate_data(resources)
+        #print("Preprocessing Cell", cell_index)
         resources.setdefault('fixed_selection', {})
         resources.setdefault('set_selection', {})
         resources.setdefault('data_model', {})
