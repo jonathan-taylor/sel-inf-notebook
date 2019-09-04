@@ -7,8 +7,8 @@ import uuid
 import preprocessors
 
 # Read a notebook (on which to test the preprocessor)
+#nbpath = 'notebooks/hello-world-dataframe-r.ipynb'
 nbpath = 'notebooks/hello-world-dataframe-r.ipynb'
-#nbpath = 'notebooks/hello-world-dataframe.ipynb'
 nb = nbformat.read(nbpath, nbformat.NO_CONVERT)
 
 # Initialize the analysis preprocessor (for full dataset)
@@ -93,13 +93,16 @@ simulate_pp.km.shutdown_kernel(now=simulate_pp.shutdown_kernel == 'immediate')
 # Selection indicators -------------------------------------------------
 
 print("Selection Type:", selection_type)
+print("Selection:", selected_vars)
 
 # 1D array of indicators for selection event for each simulation
 selection = np.empty(n_simulations)
 
 # 'Lee'-type selection - selected
 if selection_type == 'set':
-    pass
+    # TODO: Right now this is just a copy of full selection (below)
+    for i in range(n_simulations):
+        selection[i] = np.array_equal(selected_vars_sim[i], selected_vars_init)
 
 # 'Liu'-type selection - full
 elif selection_type == 'fixed':

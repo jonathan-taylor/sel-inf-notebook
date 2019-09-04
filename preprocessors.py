@@ -222,6 +222,9 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         # [Source code for phantom notebook cell]
         # Save the sufficient statistic as a feather file and output
         # the file's raw bytecode as base 64
+
+        # TODO: Add source code to close connections after opening them
+        # (opened to make temp files)
         if self.km.kernel_name == 'python3':
             source = '\n'.join([
                     'from IPython.display import display',
@@ -234,13 +237,19 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             source = ['\nlibrary(feather)',
                       'filename = tempfile()',
                       'feather::write_feather(%s, filename)',
-                      'A = readBin(file(filename, "rb"), "raw", file.size(filename) + 1000)',
-                      'IRdisplay:::display_raw("application/selective.inference", TRUE, NULL, filename, list(encoder="dataframe"))']
+                      'f = file(filename, "rb")',
+                      'A = readBin(f, "raw", file.size(filename) + 1000)',
+                      'IRdisplay:::display_raw("application/selective.inference", TRUE, NULL, filename, list(encoder="dataframe"))',
+                      'close(f)',
+                      'unlink(filename)']
             source = '\n'.join(source) % suff_stat_var
         capture_cell.source += source
 
         # Run the phantom cell and save its output (suff stat in base 64)
         _, cell_output = self.run_cell(capture_cell, self.default_index)
+        
+        # TODO: temp debugging
+        #print(cell_output)
 
         """
         print("\n-- START CHECK --")
@@ -443,38 +452,35 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
     def simulate_data(self, resources):
         # all of the collected data will have to be available at runtime
         # if we want to bootstrap, say
-        if not self.data_has_been_simulated:
-            print('simulating data')
-            if self.km.kernel_name == 'python3':
-                print('do i get here?')
-                source = '\n'.join(['if "%(simulated_data)s" not in locals():', '    %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")']) + '\n'
-                source += '\n'.join(['for key in %(simulated_data)s.keys():',
-                        '    locals()[key] = %(simulated_data)s[key]'])
 
-            elif self.km.kernel_name == 'ir':
-                #source = 'if (! exists("%(simulate_data)s")) { %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s") }' % {'data':self.data_name}
-                source = 'if (! exists("%(simulated_data)s")) { %(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s") }'
-                source += '\n'.join(['\nfor(key in %(simulated_data)s) {',
-                                     '  assign(key, %(simulated_data)s[key])',
-                                     '}'])
+        #TODO: temp
+        print(resources.keys())
 
-            source = source % {'simulated_data':self.simulated_data,
-                               'simulate':resources.get('data_model', {}).get('resample_data', 'function_not_found'),
-                               'data_name':self.data_name,
-                               'fixed_selection': json.dumps(resources.get("fixed_selection", {}))}
-            
-            simulate_cell = nbformat.v4.new_code_cell(source=source)
-            """
-            print('SIMULATE DATA SOURCE simulate_data')
-            print('-'*20)
-            print(simulate_cell.source)
-            print('-'*20)
-            """
-            self.run_cell(simulate_cell, self.default_index)
-            
-            # TODO: Remove data_has_been_simulated logic so that it simulates
-            # each time?
-            #self.data_has_been_simulated = True
+        print('simulating data')
+        if self.km.kernel_name == 'python3':
+            source = '%(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")' + '\n'
+            source += '\n'.join(['for key in %(simulated_data)s.keys():',
+                    '    locals()[key] = %(simulated_data)s[key]'])
+
+        elif self.km.kernel_name == 'ir':
+            source = '%(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")'
+            source += '\n'.join(['\nfor(key in %(simulated_data)s) {',
+                                 '  assign(key, %(simulated_data)s[key])',
+                                 '}'])
+
+        source = source % {'simulated_data':self.simulated_data,
+                           'simulate':resources.get('data_model', {}).get('resample_data', 'function_not_found'),
+                           'data_name':self.data_name,
+                           'fixed_selection': json.dumps(resources.get("fixed_selection", {}))}
+        
+        simulate_cell = nbformat.v4.new_code_cell(source=source)
+        """
+        print('SIMULATE DATA SOURCE simulate_data')
+        print('-'*20)
+        print(simulate_cell.source)
+        print('-'*20)
+        """
+        self.run_cell(simulate_cell, self.default_index)
 
 
     def preprocess(self, nb, resources=None, km=None):
