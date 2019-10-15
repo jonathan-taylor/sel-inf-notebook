@@ -37,7 +37,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             Additional resources used in the conversion process. For
             example, passing ``{'metadata': {'path': run_path}}`` sets
             the execution path to ``run_path``.
-        km : KernerlManager (optional)
+        km : KernelManager (optional)
             Optional kernel manaher. If none is provided, a kernel
             manager will be created.
 
@@ -101,8 +101,8 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
     def _default_data_name(self):
         return 'data_' + str(uuid.uuid1()).replace('-','') 
 
-
     define_data = Unicode()
+
     @default('define_data')
     def _default_define_data(self):
         """Generate source code to define data.
@@ -156,6 +156,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
     ''' % selection['name']
 
             _, selection_outputs = self.run_cell(capture_cell, self.default_index)
+            #print(selection_outputs)
 
             for selection, output in zip(cell.metadata['capture_selection'],
                                          selection_outputs):
@@ -441,7 +442,6 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
     time, it captures the observed values of variables on which the
     analysis is conditioned.
     """
-    data_has_been_simulated = Bool(False)
     processing_mode = Unicode('simulation')
 
     simulated_data = Unicode()
@@ -450,18 +450,14 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         return 'simulated_data_' + str(uuid.uuid1()).replace('-','') 
 
     def simulate_data(self, resources):
-        # all of the collected data will have to be available at runtime
-        # if we want to bootstrap, say
-
-        #TODO: temp
-        print(resources.keys())
-
+        """Simulate data within the client notebook by injecting a cell
+        that calls the simulate function.
+        """
         print('simulating data')
         if self.km.kernel_name == 'python3':
             source = '%(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")' + '\n'
             source += '\n'.join(['for key in %(simulated_data)s.keys():',
                     '    locals()[key] = %(simulated_data)s[key]'])
-
         elif self.km.kernel_name == 'ir':
             source = '%(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")'
             source += '\n'.join(['\nfor(key in %(simulated_data)s) {',
@@ -481,6 +477,29 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         print('-'*20)
         """
         self.run_cell(simulate_cell, self.default_index)
+
+
+    def capture_selection_indicators(self, resources):
+        """Generate a one-dimensional data frame of selection indicators
+        by comparing the simulated selection to the original full-
+        sample selection.
+        """
+        # TODO: complete this function
+
+        # Return an empty array if necessary metadata is missing
+        if not (('data_model' in resources) and \
+                ('selection_indicator_function' in resources['data_model'])):
+            print("-- WARNING --")
+            print("Unable to generate selection indicators.\n")
+            return np.array([])
+
+        # Specify the source code for a cell to capture the selection
+        # indicators
+        source = "print('test')"
+
+        # Generate a new cell after the cell whose metadata contains
+        sel_ind_cell = nbformat.v4.new_code_cell(source=source)
+        self.run_cell(sel_ind_cell, self.default_index)
 
 
     def preprocess(self, nb, resources=None, km=None):
@@ -558,11 +577,15 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         """
         outputs = self.run_cell(cell, cell_index)
         
-        # Capture selection
+        # Capture selection (if applicable)
         self.capture_selection(cell, resources)
 
-        # capturing sufficient stats
+        # Capturing sufficient stats (if applicable)
         self.capture_sufficient_statistics(resources)
+
+        # Capture selection indicators (if applicable)
+        # TODO: implement this
+        self.capture_selection_indicators(resources)
 
         cell.outputs = outputs
 
