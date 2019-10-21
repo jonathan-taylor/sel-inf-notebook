@@ -7,7 +7,7 @@ import uuid
 import preprocessors
 
 # Read a notebook (on which to test the preprocessor)
-#nbpath = 'notebooks/hello-world-dataframe-r.ipynb'
+#nbpath = 'notebooks/hello-world-dataframe.ipynb'
 nbpath = 'notebooks/hello-world-dataframe-r.ipynb'
 nb = nbformat.read(nbpath, nbformat.NO_CONVERT)
 
@@ -21,6 +21,7 @@ resources = {}  # empty dict to store outputs etc.
 
 # Preprocess the notebook; save info into `resources`
 nb, resources = analysis_pp.preprocess(nb, resources=resources)
+print(resources)
 
 # Selection variable
 selection_type = resources['selection_type']
@@ -50,10 +51,12 @@ n_simulations = 3
 # Generate empty numpy arrays to fill with simulated selection and
 # suff stat
 selected_vars_dim = np.shape(selected_vars_init)
-selected_vars_sim = np.empty((n_simulations,) + selected_vars_dim)
+selected_vars_sim = np.empty((n_simulations,) + selected_vars_dim,
+                             dtype=object)
 
 suff_stat_dim = np.shape(suff_stat_init)
-suff_stat_sim = np.empty((n_simulations,) + suff_stat_dim)
+suff_stat_sim = np.empty((n_simulations,) + suff_stat_dim,
+                         dtype=object)
 
 # Initialize the simulation preprocessor (for simulated data)
 simulate_pp = preprocessors.SimulatePreprocessor(timeout=600)
@@ -74,6 +77,8 @@ for i in range(n_simulations):
     print("Suff Stat:\n", suff_stat, "\n")
     print("\n-- SIMULATION %s COMPLETE --\n" % (i + 1))
 
+original_selection = resources['original_selection']
+
 # Cleaning up / shutting down ------------------------------------------
 
 # Shut down the kernel
@@ -93,11 +98,37 @@ simulate_pp.km.shutdown_kernel(now=simulate_pp.shutdown_kernel == 'immediate')
 # Selection indicators -------------------------------------------------
 
 print("Selection Type:", selection_type)
-print("Selection:", selected_vars)
 
-# 1D array of indicators for selection event for each simulation
-selection = np.empty(n_simulations)
+def get_fixed_sel_indicator(original_sel_vars, simulated_sel_vars):
+    return np.array_equal(simulated_sel_vars, original_sel_vars)
 
+
+def get_set_sel_indicator(original_sel_vars, simulated_sel_vars):
+    # TODO: finish this
+    indicators = []
+    for i in range(pd.shape[0]):
+        indicators.append(original_sel_vars[i].equals(simulated_sel_vars[i]))
+
+
+if selection_type == 'full':
+    indicators = np.empty(n_simulations)
+    for i in range(n_simulations):
+        indicators[i] = \
+                get_fixed_sel_indicator(original_selection, selected_vars_sim[i])
+
+
+elif selection_type == 'set':
+    # TODO: finish this
+    #n_vars = original_sel_vars.shape[1]
+    #indicators = np.empty((n_simulations, n_vars))
+    indicators = np.empty(n_simulations)
+    for i in range(n_simulations):
+        indicators[i] = \
+                get_fixed_sel_indicator(original_selection, selected_vars_sim[i])
+
+print(indicators)
+
+"""
 # 'Lee'-type selection - selected
 if selection_type == 'set':
     # TODO: Right now this is just a copy of full selection (below)
@@ -108,8 +139,4 @@ if selection_type == 'set':
 elif selection_type == 'fixed':
     for i in range(n_simulations):
         selection[i] = np.array_equal(selected_vars_sim[i], selected_vars_init)
-
-else:
-    print('WARNING: Unspecified selection type')
-
-print(selection)
+"""

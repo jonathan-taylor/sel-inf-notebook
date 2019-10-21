@@ -173,9 +173,11 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                 # Base 64 encoding of dataframe of selected vars
                 output_data = output['data']['application/selective.inference'] # a string
                 if save_to_notebook:
-                    print("SHOULD SAVE HERE")
+                    # Save the base 64 encoding to the notebook's metadata
                     cell.metadata['original_selection'] = output_data
-                    print(cell.metadata)
+
+                    # Save the actual dataframe to `resources`
+                    resources['original_selection'] = base64_to_dataframe(output_data)
 
                 #print('OUTPUT:\n', output_data)
                 decoder = {'json':json.loads,
@@ -200,6 +202,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         resources : dictionary
             An updated resources dictionary.
         """
+        # TODO: why isn't `cell` passed in like the other functions?
         # Return an empty array if necessary metadata is missing
         if not (('data_model' in resources) and \
                 ('sufficient_statistics' in resources['data_model'])):
@@ -289,11 +292,33 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         return resources
 
 
-    def recall_original_selection:
+    def recall_original_selection(self, cell, resources):
         """Read the original selected variables from the notebook's
-        metadata.
+        metadata into the kernel's namespace.
         """
-        pass
+        # TODO: add parsers for python kernel, JSON encoding
+
+        # Currently omitting b/c trying to use `resources` instead
+        # TODO: remove this function if `resources` works
+        """
+        if 'original_selection' not in cell.metadata:
+            return
+        
+        # Base 64 string of dataframe of original selected vars
+        original_sel_base64 = cell.metadata['original_selection']
+
+        # Generate a new cell to read the selected vars into the kernel
+
+        # Write the base 64 to disk (as a feather)
+        recall_src = ['base64_original_sel <- "%s"',
+                'filename <- tempfile()',
+                'writeBin("raw")'
+                ''] % original_sel_base64
+        recall_src = '\n'.join(recall_src)
+        recall_cell = nbformat.v4.new_code_cell(source=recall_src)
+
+        # Read the feather from disk
+        """
 
 
 class AnalysisPreprocessor(SelectiveInferencePreprocessor):
@@ -604,6 +629,10 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         
         # Capture selection (if applicable)
         self.capture_selection(cell, resources)
+
+        # Recall original selection
+        # TODO: implement this
+        self.recall_original_selection(cell, resources)
 
         # Capturing sufficient stats (if applicable)
         self.capture_sufficient_statistics(resources)
