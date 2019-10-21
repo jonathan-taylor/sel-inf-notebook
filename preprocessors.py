@@ -89,8 +89,8 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             finally:
                 #print("hereiam?"*10)
                 pass
-#                for attr in ['nb', 'km', 'kc']:
-#                    delattr(self, attr)
+                #for attr in ['nb', 'km', 'kc']:
+                #    delattr(self, attr)
 
 
     data_name = Unicode()
@@ -116,9 +116,10 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         return source
 
 
-    def capture_selection(self, cell, resources):
-        """Capture JSON-serialized selection outputs into
-        resources['set_selection'] and resources['fixed_selection'].
+    def capture_selection(self, cell, resources, save_to_notebook=False):
+        """Capture JSON- or feather/base64-serialized selection outputs
+        into resources['set_selection'] and
+        resources['fixed_selection'].
         """
         set_selection = resources['set_selection']
         fixed_selection = resources['fixed_selection']
@@ -126,6 +127,11 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         # Generate a new cell after the cell whose metadata contains
         # the attribute 'capture_selection'
         if 'capture_selection' in cell.metadata:
+            # TODO: reverse the above logic; don't do anything if
+            # capture_selection not in cell.metadata
+            print("-- DEBUG: CAPTURE_SELECTION --")
+            print(cell.metadata)
+
             resources['selection_type'] = cell.metadata['capture_selection'][0]['selection_type']
             capture_cell = nbformat.v4.new_code_cell()
             for selection in cell.metadata['capture_selection']:
@@ -155,12 +161,22 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
     IRdisplay:::display_raw("application/selective.inference", TRUE, NULL, filename, list(encoder="dataframe"))
     ''' % selection['name']
 
+            # Base 64 string of dataframe of selected variables
             _, selection_outputs = self.run_cell(capture_cell, self.default_index)
-            #print(selection_outputs)
 
+            # For loop to accomodate for possibly multiple selection events
             for selection, output in zip(cell.metadata['capture_selection'],
                                          selection_outputs):
+                # TODO: implement functionality to accomodate for
+                # multiple selections
+
+                # Base 64 encoding of dataframe of selected vars
                 output_data = output['data']['application/selective.inference'] # a string
+                if save_to_notebook:
+                    print("SHOULD SAVE HERE")
+                    cell.metadata['original_selection'] = output_data
+                    print(cell.metadata)
+
                 #print('OUTPUT:\n', output_data)
                 decoder = {'json':json.loads,
                            'dataframe':base64_to_dataframe,
@@ -273,6 +289,13 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         return resources
 
 
+    def recall_original_selection:
+        """Read the original selected variables from the notebook's
+        metadata.
+        """
+        pass
+
+
 class AnalysisPreprocessor(SelectiveInferencePreprocessor):
     """This preprocessor runs the analysis on the collected data,
     capturing output that will be conditioned on.
@@ -339,7 +362,6 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         index : int
             Index of the cell being processed
         """
-        
         resources.setdefault('fixed_selection', {})
         resources.setdefault('set_selection', {})
         resources.setdefault('data_model', {})
@@ -358,11 +380,12 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         _, outputs = self.run_cell(cell, cell_index)
         
         # Capture selection
-        self.capture_selection(cell, resources)
+        self.capture_selection(cell, resources, True)
 
-        if 'data_model' in cell.metadata:
-            for var in ['estimators', 'sufficient_statistics', 'resample_data']:
-                resources['data_model'][var] = cell.metadata['data_model'][var] # hooks used to define target and generative model
+        if 'data_model' in cell.metadata and 'functions' in cell.metadata:
+            if cell.metadata['functions'] == 'stats_computations':
+                for var in ['estimators', 'sufficient_statistics', 'resample_data']:
+                    resources['data_model'][var] = cell.metadata['data_model'][var] # hooks used to define target and generative model
 
         cell.outputs = outputs
 
@@ -493,13 +516,15 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
             print("Unable to generate selection indicators.\n")
             return np.array([])
 
+        print("sel should work")
+
         # Specify the source code for a cell to capture the selection
         # indicators
-        source = "print('test')"
+        #source = "print('test')"
 
         # Generate a new cell after the cell whose metadata contains
-        sel_ind_cell = nbformat.v4.new_code_cell(source=source)
-        self.run_cell(sel_ind_cell, self.default_index)
+        #sel_ind_cell = nbformat.v4.new_code_cell(source=source)
+        #self.run_cell(sel_ind_cell, self.default_index)
 
 
     def preprocess(self, nb, resources=None, km=None):

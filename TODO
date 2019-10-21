@@ -1,0 +1,11 @@
+TODO
+====
+
+2019-10-16
+----------
+ * Integrate selection indicators into preprocessing script
+ * Save initial selected_variables to notebook metadata
+    > Save serialized base 64 of feather
+ * Keep a running dataframe of sufficient stats + selection indicators
+    > Either save initial selection indicators (all 1) + sufficient stat
+      to this dataframe, or just save them to the notebook metadata
