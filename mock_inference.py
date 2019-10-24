@@ -104,10 +104,17 @@ def get_fixed_sel_indicator(original_sel_vars, simulated_sel_vars):
 
 
 def get_set_sel_indicator(original_sel_vars, simulated_sel_vars):
-    # TODO: finish this
-    indicators = []
-    for i in range(pd.shape[0]):
-        indicators.append(original_sel_vars[i].equals(simulated_sel_vars[i]))
+    n_vars = original_sel_vars.shape[0]
+    indicators = np.zeros(n_vars)
+    # TODO: fix this part, which actually generates positive indicators
+    """
+    for i in range(n_vars):
+        #indicators[i] = np.isin(original_sel_vars[i], simulated_sel_vars)
+        for j in range(simulated_sel_vars.shape[0]):
+            if(simulated_sel_vars[j] == original_sel_vars[i]):
+                indicators[i] = 1
+    """
+    return indicators
 
 
 if selection_type == 'full':
@@ -118,13 +125,11 @@ if selection_type == 'full':
 
 
 elif selection_type == 'set':
-    # TODO: finish this
-    #n_vars = original_sel_vars.shape[1]
-    #indicators = np.empty((n_simulations, n_vars))
-    indicators = np.empty(n_simulations)
+    n_vars = original_selection.shape[0]
+    indicators = np.empty((n_simulations, n_vars))
     for i in range(n_simulations):
         indicators[i] = \
-                get_fixed_sel_indicator(original_selection, selected_vars_sim[i])
+                get_set_sel_indicator(original_selection, selected_vars_sim[i])
 
 print(indicators)
 

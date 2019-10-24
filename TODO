@@ -1,11 +1,23 @@
 TODO
 ====
 
+
+2019-10-23
+----------
+ * Within the preprocessors, save selection as a single consistent
+   entry in `resources`, rather than having separate `fixed_selection`
+   and `set_selection` entries.
+    > Create a function argument or separate entry of `resources`
+      specifying the selection type (depending on whether we choose to
+      generate selection indicators in the notebook or in the inference
+      script)
+
+
 2019-10-16
 ----------
- * Integrate selection indicators into preprocessing script
- * Save initial selected_variables to notebook metadata
-    > Save serialized base 64 of feather
+ * Integrate selection indicators into preprocessing script [DONE]
+ * Save initial selected_variables to notebook metadata [DONE]
+    > Save serialized base 64 of feather [DONE]
  * Keep a running dataframe of sufficient stats + selection indicators
     > Either save initial selection indicators (all 1) + sufficient stat
       to this dataframe, or just save them to the notebook metadata

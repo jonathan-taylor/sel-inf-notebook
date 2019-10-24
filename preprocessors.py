@@ -76,7 +76,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             if not km.has_kernel:
                 km.start_kernel(extra_arguments=self.extra_arguments, **kwargs)
             self.kc = km.client()
-            print('has a kernel')
+            #print('has a kernel')
             self.kc.start_channels()
             try:
                 self.kc.wait_for_ready(timeout=self.startup_timeout)
@@ -129,8 +129,8 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         if 'capture_selection' in cell.metadata:
             # TODO: reverse the above logic; don't do anything if
             # capture_selection not in cell.metadata
-            print("-- DEBUG: CAPTURE_SELECTION --")
-            print(cell.metadata)
+            #print("-- DEBUG: CAPTURE_SELECTION --")
+            #print(cell.metadata)
 
             resources['selection_type'] = cell.metadata['capture_selection'][0]['selection_type']
             capture_cell = nbformat.v4.new_code_cell()
@@ -501,7 +501,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         """Simulate data within the client notebook by injecting a cell
         that calls the simulate function.
         """
-        print('simulating data')
+        #print('simulating data')
         if self.km.kernel_name == 'python3':
             source = '%(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")' + '\n'
             source += '\n'.join(['for key in %(simulated_data)s.keys():',
@@ -639,7 +639,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
 
         # Capture selection indicators (if applicable)
         # TODO: implement this
-        self.capture_selection_indicators(resources)
+        #self.capture_selection_indicators(resources)
 
         cell.outputs = outputs
 
