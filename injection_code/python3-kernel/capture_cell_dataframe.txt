@@ -1,0 +1,9 @@
+import feather
+import json
+import tempfile
+from IPython.display import display
+
+filename = tempfile.mkstemp()[1]
+feather.write_dataframe(%s, filename) 
+display({"application/selective.inference":open(filename, "rb").read()},
+        metadata={"encoder":"dataframe"}, raw=True)

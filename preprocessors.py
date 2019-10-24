@@ -149,17 +149,17 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                                                           'display({"application/selective.inference":json.dumps(%s)}, metadata={"encoder":"json"}, raw=True)' % selection['name']])
                     # Base 64 dataframe encoding
                     elif selection['encoder'] == 'dataframe':
-                        capture_cell.source += '\n'.join(['from IPython.display import display',
-                                                          'import json, tempfile, feather',
-                                                          'filename = tempfile.mkstemp()[1]',
-                                                          'feather.write_dataframe(%s, filename)' % selection['name'],
-                                                          'display({"application/selective.inference":open(filename, "rb").read()}, metadata={"encoder":"dataframe"}, raw=True)'])
+                        with open(injection_code_path +
+                                  'capture_cell_dataframe.txt', 'r') as f:
+                            source = f.read()
+                        capture_cell.source += source % selection['name']
 
                 elif self.km.kernel_name == 'ir':
                     if selection['encoder'] == 'json':
                         capture_cell.source += 'IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(%s), NULL, list(encoder="json"))' % selection['name']
                     elif selection['encoder'] == 'dataframe':
-                        with open(injection_code_path + 'capture_cell_1.txt', 'r') as f:
+                        with open(injection_code_path +
+                                  'capture_cell_1.txt', 'r') as f:
                             source = f.read()
                         capture_cell.source += source % selection['name']
 
