@@ -1,0 +1,6 @@
+library(feather)
+filename = tempfile()
+feather::write_feather(%s, filename)
+base64 = readBin(file(filename, 'rb'), 'raw', file.size(filename) + 1000)
+IRdisplay:::display_raw("application/selective.inference", TRUE, NULL,
+                        filename, list(encoder="dataframe"))

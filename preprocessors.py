@@ -124,6 +124,12 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         set_selection = resources['set_selection']
         fixed_selection = resources['fixed_selection']
 
+        # Path for injection code
+        if self.km.kernel_name == 'python3':
+            injection_code_path = 'injection_code/python3-kernel/'
+        elif self.km.kernel_name == 'ir':
+            injection_code_path = 'injection_code/ir-kernel/'
+
         # Generate a new cell after the cell whose metadata contains
         # the attribute 'capture_selection'
         if 'capture_selection' in cell.metadata:
@@ -153,13 +159,9 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                     if selection['encoder'] == 'json':
                         capture_cell.source += 'IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(%s), NULL, list(encoder="json"))' % selection['name']
                     elif selection['encoder'] == 'dataframe':
-                        capture_cell.source += '''
-    library(feather)
-    filename = tempfile()
-    feather::write_feather(%s, filename)
-    A = readBin(file(filename, 'rb'), 'raw', file.size(filename) + 1000)
-    IRdisplay:::display_raw("application/selective.inference", TRUE, NULL, filename, list(encoder="dataframe"))
-    ''' % selection['name']
+                        with open(injection_code_path + 'capture_cell_1.txt', 'r') as f:
+                            source = f.read()
+                        capture_cell.source += source % selection['name']
 
             # Base 64 string of dataframe of selected variables
             _, selection_outputs = self.run_cell(capture_cell, self.default_index)
