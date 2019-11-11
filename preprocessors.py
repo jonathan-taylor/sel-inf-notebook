@@ -8,6 +8,7 @@ from nbconvert.preprocessors import ExecutePreprocessor
 from traitlets import Unicode, Int, Bool, default
 from json_dataframe import base64_to_dataframe
 
+from jupyter_client.manager import start_new_kernel
 #from json_dataframe import dataframe_to_json, json_to_dataframe, dataframe_to_jsonR, base64_to_dataframe
 
 class SelectiveInferencePreprocessor(ExecutePreprocessor):
@@ -57,7 +58,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         self.widget_buffers = {}
 
         if km is None:
-            self.km, self.kc = self.start_new_kernel(cwd=path)
+            self.km, self.kc = start_new_kernel(cwd=path, kernel_name='ir')
             try:
                 # Yielding unbound args for more easier understanding
                 # and downstream consumption
@@ -164,7 +165,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                         capture_cell.source += source % selection['name']
 
             # Base 64 string of dataframe of selected variables
-            _, selection_outputs = self.run_cell(capture_cell, self.default_index)
+            selection_outputs = self.run_cell(capture_cell, self.default_index)
 
             # For loop to accomodate for possibly multiple selection events
             for selection, output in zip(cell.metadata['capture_selection'],
@@ -268,7 +269,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         capture_cell.source += source
 
         # Run the phantom cell and save its output (suff stat in base 64)
-        _, cell_output = self.run_cell(capture_cell, self.default_index)
+        cell_output = self.run_cell(capture_cell, self.default_index)
         
         # TODO: temp debugging
         #print(cell_output)
@@ -368,9 +369,9 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
             resources = self.capture_sufficient_statistics(resources)
 
             # Metadata operations
-            info_msg = self._wait_for_reply(self.kc.kernel_info())
-            nb.metadata['language_info'] = info_msg['content']['language_info']
-            self.set_widgets_metadata()
+            # info_msg = self._wait_for_reply(self.kc.kernel_info())
+            # nb.metadata['language_info'] = info_msg['content']['language_info']
+            # self.set_widgets_metadata()
 
         return nb, resources
 
@@ -404,7 +405,7 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         print(cell.source)
         print('-'*20)
         """
-        _, outputs = self.run_cell(cell, cell_index)
+        outputs = self.run_cell(cell, cell_index)
         
         # Capture selection
         self.capture_selection(cell, resources, True)
@@ -591,9 +592,9 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
             nb, resources = super(ExecutePreprocessor, self).preprocess(nb, resources)
 
             # nbconvert overhead
-            info_msg = self._wait_for_reply(self.kc.kernel_info())
-            nb.metadata['language_info'] = info_msg['content']['language_info']
-            self.set_widgets_metadata()
+            # info_msg = self._wait_for_reply(self.kc.kernel_info())
+            # nb.metadata['language_info'] = info_msg['content']['language_info']
+            # self.set_widgets_metadata()
 
         return nb, resources
 
