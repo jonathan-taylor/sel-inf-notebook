@@ -58,7 +58,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         self.widget_buffers = {}
 
         if km is None:
-            self.km, self.kc = start_new_kernel(cwd=path, kernel_name='ir')
+            self.km, self.kc = start_new_kernel(cwd=path, kernel_name=nb['metadata']['kernelspec']['name'])
             try:
                 # Yielding unbound args for more easier understanding
                 # and downstream consumption
@@ -165,7 +165,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                         capture_cell.source += source % selection['name']
 
             # Base 64 string of dataframe of selected variables
-            selection_outputs = self.run_cell(capture_cell, self.default_index)
+            _, selection_outputs = self.run_cell(capture_cell, self.default_index)
 
             # For loop to accomodate for possibly multiple selection events
             for selection, output in zip(cell.metadata['capture_selection'],
@@ -269,7 +269,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         capture_cell.source += source
 
         # Run the phantom cell and save its output (suff stat in base 64)
-        cell_output = self.run_cell(capture_cell, self.default_index)
+        _, cell_output = self.run_cell(capture_cell, self.default_index)
         
         # TODO: temp debugging
         #print(cell_output)
@@ -405,7 +405,7 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         print(cell.source)
         print('-'*20)
         """
-        outputs = self.run_cell(cell, cell_index)
+        _, outputs = self.run_cell(cell, cell_index)
         
         # Capture selection
         self.capture_selection(cell, resources, True)
@@ -628,7 +628,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         print(cell.source)
         print('-'*20)
         """
-        outputs = self.run_cell(cell, cell_index)
+        _, outputs = self.run_cell(cell, cell_index)
         
         # Capture selection (if applicable)
         self.capture_selection(cell, resources)
@@ -642,7 +642,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
 
         # Capture selection indicators (if applicable)
         # TODO: implement this
-        #self.capture_selection_indicators(resources)
+        self.capture_selection_indicators(resources)
 
         cell.outputs = outputs
 
