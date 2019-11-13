@@ -58,7 +58,9 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         self.widget_buffers = {}
 
         if km is None:
-            self.km, self.kc = start_new_kernel(cwd=path, kernel_name=nb['metadata']['kernelspec']['name'])
+            kernel_name = nb['metadata']['kernelspec']['name']
+            self.km, self.kc = start_new_kernel(cwd=path, 
+                                                kernel_name=kernel_name)
             try:
                 # Yielding unbound args for more easier understanding
                 # and downstream consumption
@@ -90,20 +92,32 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             finally:
                 #print("hereiam?"*10)
                 pass
-                #for attr in ['nb', 'km', 'kc']:
-                #    delattr(self, attr)
-
 
     data_name = Unicode()
+    selection_list_name = Unicode('NOTCREATED')
     default_index = Int(-1)
     processing_mode = Unicode()
+    logstr = Unicode()
+
+    def exec_debug(self, code):
+        new_cell = nbformat.v4.new_code_cell()
+        new_cell.source = code
+        val = self.run_cell(new_cell, 0)
+        try:
+            print(val[1][0]['data']['text/plain'])
+        except:
+            print(val[1][0]['text'])
+
+    def run_cell(self, cell, cell_index):
+        self.logstr += cell.source
+        self.logstr += '\n' + '=' * 40 + '\n'
+        return ExecutePreprocessor.run_cell(self, cell, cell_index)
 
     @default('data_name')
     def _default_data_name(self):
         return 'data_' + str(uuid.uuid1()).replace('-','') 
 
     define_data = Unicode()
-
     @default('define_data')
     def _default_define_data(self):
         """Generate source code to define data.
@@ -133,6 +147,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
 
         # Generate a new cell after the cell whose metadata contains
         # the attribute 'capture_selection'
+
         if 'capture_selection' in cell.metadata:
             # TODO: reverse the above logic; don't do anything if
             # capture_selection not in cell.metadata
@@ -141,6 +156,14 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
 
             resources['selection_type'] = cell.metadata['capture_selection'][0]['selection_type']
             capture_cell = nbformat.v4.new_code_cell()
+
+            if self.selection_list_name == 'NOTCREATED':
+                self.selection_list_name = 'original_selection_' + str(uuid.uuid1()).replace('-','') 
+                if self.km.kernel_name == 'python3':
+                    capture_cell.source = ('%s = {};\n' % self.selection_list_name) + capture_cell.source
+                elif self.km.kernel_name == 'ir':
+                    capture_cell.source = ('%s = list();\n' % self.selection_list_name) + capture_cell.source
+
             for selection in cell.metadata['capture_selection']:
                 if self.km.kernel_name == 'python3':
                     # JSON encoding
@@ -154,19 +177,38 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                                   'capture_cell_dataframe.txt', 'r') as f:
                             source = f.read()
                         capture_cell.source += source % selection['name']
-
+                    # keep original selection variable persistent
+                    capture_cell.source += '%s["%s"] = %s;\n' % (self.selection_list_name,
+                                                                 selection['name'],
+                                                                 selection['name'])
                 elif self.km.kernel_name == 'ir':
                     if selection['encoder'] == 'json':
-                        capture_cell.source += 'IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(%s), NULL, list(encoder="json"))' % selection['name']
+                        capture_cell.source += 'IRdisplay:::display_raw("application/selective.inference", FALSE, toJSON(%s), NULL, list(encoder="json"));\n' % selection['name']
                     elif selection['encoder'] == 'dataframe':
                         with open(injection_code_path +
                                   'capture_cell_1.txt', 'r') as f:
                             source = f.read()
                         capture_cell.source += source % selection['name']
 
+                    # keep original selection variable persistent
+                    capture_cell.source += '%s[["%s"]] = %s;\n' % (self.selection_list_name,
+                                                                   selection['name'],
+                                                                   selection['name'])
+
             # Base 64 string of dataframe of selected variables
             _, selection_outputs = self.run_cell(capture_cell, self.default_index)
-
+            #self.exec_debug('print("NAMESPACE")')
+            #self.exec_debug('ls()')
+            #print('PRINT CELL')
+            #print_cell = nbformat.v4.new_code_cell()
+            #print_cell.source = 'print(%s)' % self.selection_list_name
+            #print('CAPTURE')
+            #print(capture_cell.source)
+            #print('PRINT')
+            #print(print_cell)
+            #print(self.run_cell(print_cell, self.default_index))
+            #self.exec_debug('print("NAMESPACE")'); self.exec_debug('ls()')
+            #print('-'*40)
             # For loop to accomodate for possibly multiple selection events
             for selection, output in zip(cell.metadata['capture_selection'],
                                          selection_outputs):
@@ -231,10 +273,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
         # Apply formatting rules to the source code (i.e. fill in
         # variable names)
 
-        if self.processing_mode == 'analysis':
-            data_name = self.data_name
-        else:
-            data_name = self.simulated_data
+        data_name = self.data_name
         
         capture_cell.source = source % {'suff_stat': suff_stat_var,
                 'data_name': data_name, 
@@ -270,7 +309,8 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
 
         # Run the phantom cell and save its output (suff stat in base 64)
         _, cell_output = self.run_cell(capture_cell, self.default_index)
-        
+        #self.exec_debug('print("NAMESPACE")'); self.exec_debug('ls()')
+
         # TODO: temp debugging
         #print(cell_output)
 
@@ -363,15 +403,18 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
 
             # Preprocess each cell of the notebook
             # TODO: use super(AnalysisPreprocessor)?
-            nb, resources = super(ExecutePreprocessor, self).preprocess(nb, resources)
-
-            # Collect sufficient statistics
-            resources = self.capture_sufficient_statistics(resources)
+            nb, resources = ExecutePreprocessor.preprocess(self, 
+                                                           nb, 
+                                                           resources,
+                                                           km=km)
 
             # Metadata operations
             # info_msg = self._wait_for_reply(self.kc.kernel_info())
             # nb.metadata['language_info'] = info_msg['content']['language_info']
             # self.set_widgets_metadata()
+
+        # Collect sufficient statistics
+        resources = self.capture_sufficient_statistics(resources)
 
         return nb, resources
 
@@ -398,22 +441,22 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         if cell.cell_type != 'code' or not cell.source.strip():
             return cell, resources
 
-        cell = self.prepend_data_input_code(cell)
         """
         print('ANALYSIS CELL SOURCE')
         print('-'*20)
         print(cell.source)
         print('-'*20)
         """
+        cell = self.prepend_data_input_code(cell)
         _, outputs = self.run_cell(cell, cell_index)
-        
+        #self.exec_debug('print("NAMESPACE")'); self.exec_debug('ls()')
+
         # Capture selection
         self.capture_selection(cell, resources, True)
 
         if 'data_model' in cell.metadata and 'functions' in cell.metadata:
-            if cell.metadata['functions'] == 'stats_computations':
-                for var in ['estimators', 'sufficient_statistics', 'resample_data']:
-                    resources['data_model'][var] = cell.metadata['data_model'][var] # hooks used to define target and generative model
+            for var in cell.metadata['data_model'].keys():
+                resources['data_model'][var] = cell.metadata['data_model'][var] # hooks used to define target and generative model
 
         cell.outputs = outputs
 
@@ -493,10 +536,14 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
     time, it captures the observed values of variables on which the
     analysis is conditioned.
     """
-    processing_mode = Unicode('simulation')
 
-    simulated_data = Unicode()
-    @default('simulated_data')
+    processing_mode = Unicode('simulation')
+    selection_list_name = Unicode('NOTCREATED')
+    original_selection_list_name = Unicode('NOTCREATED')
+
+    original_data_name = Unicode()
+
+    @default('data_name')
     def _default_data_name(self):
         return 'simulated_data_' + str(uuid.uuid1()).replace('-','') 
 
@@ -512,12 +559,12 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         elif self.km.kernel_name == 'ir':
             source = '%(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")'
             source += '\n'.join(['\nfor(key in %(simulated_data)s) {',
-                                 '  assign(key, %(simulated_data)s[key])',
+                                 '  assign(key, %(simulated_data)s[[key]])',
                                  '}'])
 
-        source = source % {'simulated_data':self.simulated_data,
+        source = source % {'simulated_data':self.data_name,
                            'simulate':resources.get('data_model', {}).get('resample_data', 'function_not_found'),
-                           'data_name':self.data_name,
+                           'data_name':self.original_data_name,
                            'fixed_selection': json.dumps(resources.get("fixed_selection", {}))}
         
         simulate_cell = nbformat.v4.new_code_cell(source=source)
@@ -528,7 +575,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         print('-'*20)
         """
         self.run_cell(simulate_cell, self.default_index)
-
+        #self.exec_debug('print("NAMESPACE")'); self.exec_debug('ls()')
 
     def capture_selection_indicators(self, resources):
         """Generate a one-dimensional data frame of selection indicators
@@ -541,19 +588,19 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         if not (('data_model' in resources) and \
                 ('selection_indicator_function' in resources['data_model'])):
             print("-- WARNING --")
-            print("Unable to generate selection indicators.\n")
-            return np.array([])
-
-        print("sel should work")
-
-        # Specify the source code for a cell to capture the selection
-        # indicators
-        #source = "print('test')"
+            raise ValueError("Unable to generate selection indicators.\n")
 
         # Generate a new cell after the cell whose metadata contains
-        #sel_ind_cell = nbformat.v4.new_code_cell(source=source)
-        #self.run_cell(sel_ind_cell, self.default_index)
-
+        sel_ind_cell = nbformat.v4.new_code_cell()
+        result_id = 'result_%s' % str(uuid.uuid1()).replace('-','') 
+        sel_ind_cell.source = '%s = %s(%s, %s)\n' % (result_id,
+                                                      resources['data_model']['selection_indicator_function'],
+                                                      self.original_selection_list_name,
+                                                      self.selection_list_name)
+        sel_ind_cell.source += 'print(%s)\n' % result_id
+        print(sel_ind_cell.source)
+        print(self.run_cell(sel_ind_cell, self.default_index)[1][0])
+        #self.exec_debug('print("NAMESPACE")'); self.exec_debug('ls()')
 
     def preprocess(self, nb, resources=None, km=None):
         """Preprocess notebook executing each code cell. The input
@@ -589,7 +636,13 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
             # NOTE: this differs from AnalysisPreprocessor in that
             # we simulate data first
             self.simulate_data(resources)
-            nb, resources = super(ExecutePreprocessor, self).preprocess(nb, resources)
+            nb, resources = ExecutePreprocessor.preprocess(self, 
+                                                           nb, 
+                                                           resources,
+                                                           km=km)
+
+            self.capture_selection_indicators(resources)
+            self.capture_sufficient_statistics(resources)
 
             # nbconvert overhead
             # info_msg = self._wait_for_reply(self.kc.kernel_info())
@@ -597,7 +650,6 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
             # self.set_widgets_metadata()
 
         return nb, resources
-
 
     def preprocess_cell(self, cell, resources, cell_index):
         """Executes a single code cell. Must return modified cell and
@@ -617,7 +669,17 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         resources.setdefault('fixed_selection', {})
         resources.setdefault('set_selection', {})
         resources.setdefault('data_model', {})
-        resources.setdefault('data_name', self.data_name)
+        resources.setdefault('original_data_name', self.original_data_name)
+
+        self.logstr += 'DATA %s\n' % self.data_name
+        #self.exec_debug('print(%s)' % self.data_name)
+        self.logstr += '\n'
+
+        #ls_cell = nbformat.v4.new_code_cell()
+        #ls_cell.source = 'print("NAMESPACE"); ls()'
+        #self.logstr += ('listing\n')
+        #self.logstr += str(self.run_cell(ls_cell, cell_index)[1])
+        #self.logstr += '\n' + '='*40 + '\n'
 
         if cell.cell_type != 'code' or not cell.source.strip():
             return cell, resources
@@ -628,8 +690,17 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         print(cell.source)
         print('-'*20)
         """
-        _, outputs = self.run_cell(cell, cell_index)
         
+        if self.selection_list_name == 'NOTCREATED':
+            self.selection_list_name = 'simulated_selection_' + str(uuid.uuid1()).replace('-','') 
+            if self.km.kernel_name == 'python3':
+                cell.source = ('%s = {};\n' % self.selection_list_name) + cell.source
+            elif self.km.kernel_name == 'ir':
+                cell.source = ('%s = list();\n' % self.selection_list_name) + cell.source
+
+        _, outputs = self.run_cell(cell, cell_index)
+        #self.exec_debug('print("NAMESPACE")'); self.exec_debug('ls()')
+
         # Capture selection (if applicable)
         self.capture_selection(cell, resources)
 
@@ -637,13 +708,6 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         # TODO: implement this
         self.recall_original_selection(cell, resources)
 
-        # Capturing sufficient stats (if applicable)
-        self.capture_sufficient_statistics(resources)
-
-        # Capture selection indicators (if applicable)
-        # TODO: implement this
-        self.capture_selection_indicators(resources)
-
         cell.outputs = outputs
-
+        
         return cell, resources

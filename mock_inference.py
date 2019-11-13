@@ -59,15 +59,22 @@ suff_stat_sim = np.empty((n_simulations,) + suff_stat_dim,
                          dtype=object)
 
 # Initialize the simulation preprocessor (for simulated data)
-simulate_pp = preprocessors.SimulatePreprocessor(timeout=600)
-simulate_pp.data_name = analysis_pp.data_name
+simulate_pp = preprocessors.SimulatePreprocessor(timeout=600,
+                                                 original_selection_list_name=analysis_pp.selection_list_name,
+                                                 original_data_name=analysis_pp.data_name)
+print(simulate_pp.original_data_name, 'blah')
+print(simulate_pp.data_name, 'blah2')
+#simulate_pp.data_name = analysis_pp.data_name
 print("Pre-simulation")
-nb, resources = simulate_pp.preprocess(nb, resources=resources,
+nb, resources = simulate_pp.preprocess(nb, 
+                                       resources=resources,
                                        km=analysis_pp.km)
 
+print('first pass done')
 for i in range(n_simulations):
     # Preprocess and save results
-    nb, resources = simulate_pp.preprocess(nb, resources=resources,
+    nb, resources = simulate_pp.preprocess(nb, 
+                                           resources=resources,
                                            km=simulate_pp.km)
     selected_vars = resources[selection_var]['selected_vars']
     suff_stat = resources['suff_stat']
