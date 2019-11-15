@@ -1,7 +1,7 @@
 import copy
 import json
 import nbformat
-import numpy as np
+import numpy as np, pandas as pd
 import uuid
 
 import preprocessors
@@ -80,17 +80,22 @@ simulate_pp.nb_log.cells = (analysis_pp.nb_log.cells +
                             simulate_pp.nb_log.cells)
 nbformat.write(simulate_pp.nb_log, open('simulate_log_final.ipynb', 'w'))
 print('first pass done')
+
+suff_stats = []
+indicators = []
 for i in range(n_simulations):
     # Preprocess and save results
     nb, resources = simulate_pp.preprocess(nb, 
                                            resources=resources,
                                            km=simulate_pp.km)
-    indicators = resources['indicators']
-    suff_stat = resources['suff_stat']
+    indicators.append(resources['indicators'])
+    suff_stats.append(resources['suff_stat'])
 
-    print("Suff Stat:\n", suff_stat, "\n")
+    print("Suff Stat:\n", suff_stats[-1], "\n")
     print("\n-- SIMULATION %s COMPLETE --\n" % (i + 1))
 
+print(pd.concat(indicators))
+print(pd.concat(suff_stats))
 # original_selection = resources['original_selection']
 
 # # Cleaning up / shutting down ------------------------------------------
