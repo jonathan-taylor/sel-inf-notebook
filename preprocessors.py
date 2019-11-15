@@ -1,4 +1,5 @@
 import copy
+import time # for random seed
 import json
 import nbformat
 import numpy as np
@@ -12,6 +13,24 @@ from jupyter_client.manager import start_new_kernel
 
 def _uniq(varname):
     return varname + '_' + str(uuid.uuid1()).replace('-','') 
+
+_importFrom_ir = '''
+importFrom  <- function(filename, obj_names, where) {
+    if (missing(obj_names)) { ## import everything
+    source(filename, local = FALSE)
+    } else {
+        e  <- new.env()
+        return_env = new.env()
+        source(filename, local = e)
+        #if (missing(where)) where = parent.env(parent.env(e))
+        for (obj in obj_names) {
+            assign(x = obj, value = get(x = obj, envir = e), envir = return_env)
+        }
+    }
+    invisible(TRUE)
+    return(return_env)
+}
+'''
 
 def _capture_df_python3(dfname):
     #TODO: clean up namespace after running such code? maybe hide imports in a function?
@@ -164,7 +183,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             source = ['if "%(data)s" not in locals():', '    %(data)s = {}']
             source = '\n'.join(source) % {'data':self.data_name}
         elif self.km.kernel_name == 'ir':
-            source = 'if (! exists("%(data)s")) { %(data)s = list() }'
+            source = _importFrom_ir + '\nif (! exists("%(data)s")) { %(data)s = list() }'
             source = source % {'data':self.data_name}
         return source
 
@@ -256,6 +275,26 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
 
         return resources
 
+    def random_seed_code(self, cell, modify=True):
+
+        # modify in place to a seed based on clock time!
+        if 'analysis_seed' in cell.metadata:
+
+            if not modify:
+                seed = int(cell.metadata['analysis_seed'])
+            else: 
+                seed = int(time.time())
+
+            code_cell = nbformat.v4.new_code_cell()
+            if self.km.kernel_name == 'ir':
+                code_cell.source = 'set.seed(%d)' % seed
+            elif self.km.kernel_name == 'python3':
+                code_cell.source = 'np.random.seed(%d)' % seed
+            return code_cell
+        else:
+            return None
+
+
 class AnalysisPreprocessor(SelectiveInferencePreprocessor):
     """This preprocessor runs the analysis on the collected data,
     capturing output that will be conditioned on.
@@ -263,6 +302,7 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
     force_raise_errors = True
     cell_allows_errors = False
     processing_mode = Unicode('analysis')
+    modify_seed = False
 
     def preprocess(self, nb, resources=None, km=None, copy_nb=True):
         """Preprocess notebook executing each code cell. The input
@@ -347,6 +387,11 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         code_cell = self.insert_data_input_code(cell)
         if code_cell is not None:
             self.run_cell(code_cell, cell_index)
+
+        seed_cell = self.random_seed_code(cell, modify=self.modify_seed)
+        if seed_cell is not None:
+            self.run_cell(seed_cell, cell_index)
+
         _, outputs = self.run_cell(cell, cell_index)
 
         # Capture selection
@@ -495,7 +540,8 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
     processing_mode = Unicode('simulation')
     selection_list_name = Unicode('NULL')
     analysis_selection_list_name = Unicode()
-
+    modify_seed = True
+    
     analysis_data_name = Unicode()
 
     @default('data_name')
@@ -513,14 +559,16 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
                     '    locals()[key] = %(simulated_data)s[key]'])
         elif self.km.kernel_name == 'ir':
             source = '%(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")'
-            source += '\n'.join(['\nfor(key in names(%(simulated_data)s)) {',
-                                 '  assign(key, %(simulated_data)s[[key]])',
+            source += '\n'.join(['\nfor(%(key)s in names(%(simulated_data)s)) {',
+                                 '  assign(%(key)s, get(%(key)s, env=%(simulated_data)s))',
                                  '}'])
 
         source = source % {'simulated_data':self.data_name,
                            'simulate':resources.get('data_model', {}).get('resample_data', 'function_not_found'),
                            'data_name':self.analysis_data_name,
-                           'fixed_selection': json.dumps(resources.get("fixed_selection", {}))}
+                           'fixed_selection': json.dumps(resources.get("fixed_selection", {})),
+                           'key':_uniq('key')
+        }
         
         simulate_cell = nbformat.v4.new_code_cell(source=source)
         """
@@ -601,20 +649,11 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
             Index of the cell being processed
         """
 
-        resources.setdefault('fixed_selection', {})
-        resources.setdefault('set_selection', {})
         resources.setdefault('data_model', {})
         resources.setdefault('analysis_data_name', self.analysis_data_name)
 
         if cell.cell_type != 'code' or not cell.source.strip():
             return cell, resources
-
-        """
-        print('SIMULATION CELL SOURCE')
-        print('-'*20)
-        print(cell.source)
-        print('-'*20)
-        """
         
         if self.selection_list_name == 'NULL':
             selection_cell = nbformat.v4.new_code_cell()
@@ -624,6 +663,10 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
             elif self.km.kernel_name == 'ir':
                 selection_cell.source = ('%s = list();\n' % self.selection_list_name) 
             self.run_cell(selection_cell, cell_index)
+
+        seed_cell = self.random_seed_code(cell, modify=self.modify_seed)
+        if seed_cell is not None:
+            self.run_cell(seed_cell, cell_index)
 
         _, outputs = self.run_cell(cell, cell_index)
 
