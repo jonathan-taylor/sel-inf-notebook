@@ -136,9 +136,10 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
     def _default_nb_log(self):
         return nbformat.v4.new_notebook()
 
-    def run_cell(self, cell, cell_index, log=True):
+    def run_cell(self, cell, cell_index, log=True, write=True):
         if self.nb_log is not None and log: 
             self.nb_log.cells.append(cell)
+            nbformat.write(self.nb_log, open(self.nb_log_name, 'w'))
         return ExecutePreprocessor.run_cell(self, cell, cell_index)
 
     def _capture(self, varname, log=False): # basically up to 2darray
@@ -359,7 +360,7 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         return cell, resources
 
 
-    def datafile_input_source(self, variable_name, data_file):
+    def datafile_input_source(self, filename, variables):
         """Generate source code to read the notebook's input data. The
         data data source is specified in the notebook's metadata, and
         should have already been extracted by the preprocessor.
@@ -378,21 +379,20 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
             Source code to read the input data file.
         """
         if self.km.kernel_name == 'python3':
-            source = [
-            '%(variable_name)s = np.loadtxt("%(data_file)s", delimiter=",")',
-            '%(data_name)s["%(variable_name)s"] = %(variable_name)s']
-            source = '\n'.join(source)
-            source = source % {'data_name':self.data_name,
-                               'data_file':data_file,
-                               'variable_name':variable_name}
+            raise NotImplementedError
         elif self.km.kernel_name == 'ir':
             source = [
-            '%(variable_name)s = read.table("%(data_file)s", sep=",", header=TRUE)',
-            '%(data_name)s[["%(variable_name)s"]] = %(variable_name)s']
+                '%(variable_name)s = c(%(variables)s)',
+                '%(env)s = importFrom("%(filename)s", %(variable_name)s)',
+                'for (%(var)s in %(variable_name)s) { assign(%(var)s, get(%(var)s, env=%(env)s))}'
+                ]
             source = '\n'.join(source)
-            source = source % {'data_name':self.data_name,
-                               'data_file':data_file,
-                               'variable_name':variable_name}
+            source = source % {'variable_name':_uniq('variable'),
+                               'env':self.data_name,
+                               'var':_uniq('var'),
+                               'filename': filename,
+                               'variables': ', '.join(['"%s"' % v for v in variables])
+                               }
         return source
 
 
@@ -416,10 +416,10 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
             data identified in the given cell's metadata.
         """
         if 'data_input' in cell.metadata:
-            code_cell = copy.copy(cell)
+            code_cell = nbformat.v4.new_code_cell()
             code_cell.source = self.define_data + '\n'
-            for variable_name, data_file in cell.metadata['data_input']:
-                code_cell.source += self.datafile_input_source(variable_name, data_file) + '\n'
+            filename, variables = cell.metadata['data_input']
+            code_cell.source += self.datafile_input_source(filename, variables) + '\n'
             return code_cell
         else:
             return None
