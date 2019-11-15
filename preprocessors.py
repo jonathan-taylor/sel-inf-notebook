@@ -24,20 +24,6 @@ display({"application/selective.inference":open(%(filename)s, "rb").read()}, met
 ''' % {'dfname':dfname, 'filename':_uniq('filename')}
     return source.strip() + '\n'
 
-def _capture_array_python3(arrayname):
-    #TODO: clean up namespace after running such code? maybe hide imports in a function?
-    template_dict = {'dfname': _uniq('df'), 'filename':_uniq('filename'),
-                     'array':arrayname}
-    source = '''
-%(dfname)s = pd.DataFrame(%(array)s, columns=range(%(array)s.shape[1]))
-from IPython.display import display
-import tempfile, feather,
-%(filename)s = tempfile.mkstemp()[1]
-feather.write_dataframe(%(dfname)s, %(filename)s)
-display({"application/selective.inference":open(%(filename)s, "rb").read()}, metadata={"encoder":"dataframe"}, raw=True)'])
-''' % template_dict
-    return source.strip() + '\n'
-
 def _capture_df_ir(dfname):
     source = '''
 library(feather)
@@ -49,24 +35,6 @@ IRdisplay:::display_raw("application/selective.inference", TRUE, NULL, %(filenam
 close(%(file)s)
 unlink(%(filename)s)
 ''' % {'dfname':dfname,
-       'file':_uniq('file'),
-       'filename':_uniq('filename'),
-       'bin64':_uniq('bin64')}
-    return source
-
-def _capture_array_ir(arrayname):
-    source = '''
-%(dfname)s = as.data.frame(%(array)s)
-library(feather)
-%(filename)s = tempfile()
-feather::write_feather(%(dfname)s, %(filename)s)
-%(file)s = file(%(filename)s, "rb")
-%(bin64)s = readBin(%(file)s, "raw", file.size(%(filename)s) + 1000)
-IRdisplay:::display_raw("application/selective.inference", TRUE, NULL, %(filename)s, list(encoder="dataframe"))
-close(%(file)s)
-unlink(%(filename)s)
-''' % {'dfname':_uniq('df'),
-       'array':arrayname,
        'file':_uniq('file'),
        'filename':_uniq('filename'),
        'bin64':_uniq('bin64')}
@@ -173,21 +141,14 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             self.nb_log.cells.append(cell)
         return ExecutePreprocessor.run_cell(self, cell, cell_index)
 
-    def _capture(self, varname, ndarray=False): # basically up to 2darray
-        if not ndarray:
-            _capture = {'python3':_capture_df_python3,
-                        'ir':_capture_df_ir}[self.km.kernel_name]
-        else:
-            _capture = {'python3':_capture_array_python3,
-                        'ir':_capture_array_ir}[self.km.kernel_name]
+    def _capture(self, varname, log=False): # basically up to 2darray
+        _capture = {'python3':_capture_df_python3,
+                    'ir':_capture_df_ir}[self.km.kernel_name]
         result_cell = nbformat.v4.new_code_cell(source=_capture(varname))
-        _, cell_output = self.run_cell(result_cell, 0, log=False)
+        _, cell_output = self.run_cell(result_cell, 0, log=log)
         result_base64 = cell_output[0]['data']['application/selective.inference']
         result_df = base64_to_dataframe(result_base64)
-        if ndarray:
-            return result_df.to_numpy(result_df)
-        else:
-            return result_df
+        return result_df
 
     @default('data_name')
     def _default_data_name(self):
@@ -209,12 +170,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
 
     def capture_selection(self, cell, resources, save_to_notebook=False):
         """Capture JSON- or feather/base64-serialized selection outputs
-        into resources['set_selection'] and
-        resources['fixed_selection'].
         """
-        #set_selection = resources['set_selection']
-        #fixed_selection = resources['fixed_selection']
-
         # Generate a new cell after the cell whose metadata contains
         # the attribute 'capture_selection'
 
@@ -375,8 +331,6 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         index : int
             Index of the cell being processed
         """
-        resources.setdefault('fixed_selection', {})
-        resources.setdefault('set_selection', {})
         resources.setdefault('data_model', {})
         resources.setdefault('data_name', self.data_name)
 
@@ -514,9 +468,22 @@ for %(val) in %(result)s.items():
 
         resources['estimates'] = self._capture('%(estimates)s' % template_dict)
 
-        # now capture variance information
-        for col in resources['estimates'].columns:
-            pass
+        variances = []
+        cross = []
+        for i in range(1, len(resources['estimates'].columns)+1):
+            template_dict['idx'] = i
+            if self.km.kernel_name == 'ir':
+                variances.append(np.asarray(self._capture('as.data.frame(%(variance)s[[%(idx)d]][["var"]])' % template_dict, log=True)))
+                cross.append(np.asarray(self._capture('as.data.frame(%(variance)s[[%(idx)d]][["cross"]])' % template_dict, log=True)))
+            elif self.km.kernel_name == 'python3':
+                variances.append(np.asarray(self._capture('pd.DataFrame(%(variance)s[[%(idx)d]][["variance"]])' % template_dict, log=True)))
+                cross.append(np.asarray(self._capture('pd.DataFrame(%(variance)s[[%(idx)d]][["cross"]])' % template_dict, log=True)))
+
+        resources['variances'] = dict(zip(resources['estimates'].columns,
+                                          variances))
+
+        resources['cross'] = dict(zip(resources['estimates'].columns,
+                                      cross))
 
 class SimulatePreprocessor(SelectiveInferencePreprocessor):
     """This preprocessor reruns the analysis several times on simulated

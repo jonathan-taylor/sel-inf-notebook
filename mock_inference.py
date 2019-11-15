@@ -3,7 +3,7 @@ import json
 import nbformat
 import numpy as np, pandas as pd
 import uuid
-
+import pickle
 import preprocessors
 
 # Read a notebook (on which to test the preprocessor)
@@ -22,7 +22,6 @@ resources = {}  # empty dict to store outputs etc.
 # Preprocess the notebook; save info into `resources`
 nb, resources = analysis_pp.preprocess(nb, resources=resources)
 print(resources)
-
 print('estimates')
 print(resources['estimates'])
 
@@ -94,8 +93,10 @@ for i in range(n_simulations):
     print("Suff Stat:\n", suff_stats[-1], "\n")
     print("\n-- SIMULATION %s COMPLETE --\n" % (i + 1))
 
-print(pd.concat(indicators))
-print(pd.concat(suff_stats))
+resources['indicators'] = pd.concat(indicators)
+resources['suff_stat'] = pd.concat(suff_stats)
+pickle.dump(resources, open('analysis_info.pckl', 'wb'))
+
 # original_selection = resources['original_selection']
 
 # # Cleaning up / shutting down ------------------------------------------
