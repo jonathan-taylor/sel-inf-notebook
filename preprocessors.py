@@ -271,7 +271,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                                         }
 
         _, cell_output = self.run_cell(capture_cell, self.default_index)
-        resources['suff_stat'] = self._capture(suff_stat_var)
+        resources['suff_stat'] = self._capture(suff_stat_var, log=True)
 
         return resources
 
@@ -511,7 +511,7 @@ for %(val) in %(result)s.items():
         result_cell.source = source
         _, cell_output = self.run_cell(result_cell, 0)
 
-        resources['estimates'] = self._capture('%(estimates)s' % template_dict)
+        resources['estimates'] = self._capture('%(estimates)s' % template_dict, log=True)
 
         variances = []
         cross = []
@@ -554,11 +554,11 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         """
         #print('simulating data')
         if self.km.kernel_name == 'python3':
-            source = '%(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")' + '\n'
+            source = '%(simulated_data)s = %(simulate)s(%(data_name)s, %(analysis_selection)s)' + '\n'
             source += '\n'.join(['for key in %(simulated_data)s.keys():',
                     '    locals()[key] = %(simulated_data)s[key]'])
         elif self.km.kernel_name == 'ir':
-            source = '%(simulated_data)s = %(simulate)s(%(data_name)s, "%(fixed_selection)s")'
+            source = '%(simulated_data)s = %(simulate)s(%(data_name)s, %(analysis_selection)s)'
             source += '\n'.join(['\nfor(%(key)s in names(%(simulated_data)s)) {',
                                  '  assign(%(key)s, get(%(key)s, env=%(simulated_data)s))',
                                  '}'])
@@ -566,7 +566,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         source = source % {'simulated_data':self.data_name,
                            'simulate':resources.get('data_model', {}).get('resample_data', 'function_not_found'),
                            'data_name':self.analysis_data_name,
-                           'fixed_selection': json.dumps(resources.get("fixed_selection", {})),
+                           'analysis_selection':self.analysis_selection_list_name,
                            'key':_uniq('key')
         }
         
@@ -698,7 +698,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
 %(names)s = c();
 for (%(val)s in %(result)s) {
     %(names)s = c(%(names)s, %(val)s[['identifier']])
-    %(indicator)s = c(%(indicator)s, %(val)s[['check_fn']](%(selection)s))
+    %(indicator)s = c(%(indicator)s, %(val)s[['indicator']](%(selection)s))
 }
 names(%(indicator)s) = %(names)s
 %(indicator)s = as.data.frame(as.matrix(t(%(indicator)s)))
@@ -709,7 +709,7 @@ names(%(indicator)s) = %(names)s
 %(names)s = []
 for %(val) in %(result)s.items():
     %(names)s.append(%(val)s['identifier'])
-    %(indicator)s.append(%(val)s['check_fn'](%(selection)s))
+    %(indicator)s.append(%(val)s['indicator'](%(selection)s))
     %(estimates)s.append(%(val)s['value'])
 %(indicator)s = pd.DataFrame([%(indicator)s], columns=%(names)s)
 ''' % template_dict).strip()
@@ -717,5 +717,5 @@ for %(val) in %(result)s.items():
         result_cell.source = source
         _, cell_output = self.run_cell(result_cell, 0)
 
-        resources['indicators'] = self._capture('%(indicator)s' % template_dict)
+        resources['indicators'] = self._capture('%(indicator)s' % template_dict, log=True)
 
