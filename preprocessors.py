@@ -59,6 +59,20 @@ unlink(%(filename)s)
        'bin64':_uniq('bin64')}
     return source
 
+def _capture_df_local_ir(dfname, listname='scoobydoo'):
+    source = '''
+%(listname)s[['%(dfname)s']] = rbind(%(listname)s[['%(dfname)s']],%(dfname)s)
+''' % {'listname':listname,
+       'dfname':dfname}
+    return source.strip() + '\n'
+
+def _capture_df_local_python3(dfname, listname='scoobydoo'):
+    source = '''
+%(listname)s.setdefault('%(dfname)s', []).append(%(dfname)s)
+''' % {'listname':listname,
+       'dfname':dfname}
+    return source.strip() + '\n'
+
 class SelectiveInferencePreprocessor(ExecutePreprocessor):
     """Notebook preprocessor for selective inference. Executes cells and
     stores certain outputs based on cell metadata.
@@ -161,14 +175,19 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
             nbformat.write(self.nb_log, open(self.nb_log_name, 'w'))
         return ExecutePreprocessor.run_cell(self, cell, cell_index)
 
-    def _capture(self, varname, log=False): # basically up to 2darray
-        _capture = {'python3':_capture_df_python3,
-                    'ir':_capture_df_ir}[self.km.kernel_name]
+    def _capture(self, varname, log=False, local=False): # basically up to 2darray
+        if not local:
+            _capture = {'python3':_capture_df_python3,
+                        'ir':_capture_df_ir}[self.km.kernel_name]
+        else:
+            _capture = lambda df: {'python3':_capture_df_local_python3,
+                                   'ir':_capture_df_local_ir}[self.km.kernel_name](df, listname=self.collector)
         result_cell = nbformat.v4.new_code_cell(source=_capture(varname))
         _, cell_output = self.run_cell(result_cell, 0, log=log)
-        result_base64 = cell_output[0]['data']['application/selective.inference']
-        result_df = base64_to_dataframe(result_base64)
-        return result_df
+        if not local:
+            result_base64 = cell_output[0]['data']['application/selective.inference']
+            result_df = base64_to_dataframe(result_base64)
+            return result_df
 
     @default('data_name')
     def _default_data_name(self):
@@ -217,7 +236,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
 
             _, selection_outputs = self.run_cell(capture_cell, self.default_index)
 
-    def capture_sufficient_statistics(self, resources):
+    def capture_sufficient_statistics(self, resources, local=False):
         """Capture sufficient statistic output into
         resources['suff_stat']. Assume suff stat is a data frame.
 
@@ -271,7 +290,7 @@ class SelectiveInferencePreprocessor(ExecutePreprocessor):
                                         }
 
         _, cell_output = self.run_cell(capture_cell, self.default_index)
-        resources['suff_stat'] = self._capture(suff_stat_var, log=True)
+        resources['suff_stat'] = self._capture(suff_stat_var, log=True, local=local)
 
         return resources
 
@@ -384,6 +403,7 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         print(cell.source)
         print('-'*20)
         """
+
         code_cell = self.insert_data_input_code(cell)
         if code_cell is not None:
             self.run_cell(code_cell, cell_index)
@@ -403,7 +423,6 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
         cell.outputs = outputs
 
         return cell, resources
-
 
     def datafile_input_source(self, filename, variables):
         """Generate source code to read the notebook's input data. The
@@ -470,6 +489,7 @@ class AnalysisPreprocessor(SelectiveInferencePreprocessor):
             return None
 
     def append_result_code(self, resources):
+        #TODO allow multivariate estimates
         result_cell = nbformat.v4.new_code_cell()
         template_dict = {'result': _uniq('result'),
                          'estimators':resources['data_model']['estimators'],
@@ -537,16 +557,22 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
     analysis is conditioned.
     """
 
+    collector = Unicode('NULL')
     processing_mode = Unicode('simulation')
     selection_list_name = Unicode('NULL')
     analysis_selection_list_name = Unicode()
     modify_seed = True
-    
+    indicator_name = Unicode()
     analysis_data_name = Unicode()
+
+    @default('indicator_name')
+    def _default_indicator(self):
+        return _uniq('indicator')
 
     @default('data_name')
     def _default_data_name(self):
         return _uniq('simulated_data')
+
 
     def simulate_data(self, resources):
         """Simulate data within the client notebook by injecting a cell
@@ -622,7 +648,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
                                                            resources,
                                                            km=km)
 
-            self.capture_sufficient_statistics(resources)
+            self.capture_sufficient_statistics(resources, local=True)
 
             # nbconvert overhead
             # info_msg = self._wait_for_reply(self.kc.kernel_info())
@@ -648,6 +674,17 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
         index : int
             Index of the cell being processed
         """
+
+        if self.collector == 'NULL':
+            self.collector = _uniq('collector')
+            collector_cell = nbformat.v4.new_code_cell()
+            if self.km.kernel_name == 'ir':
+                collector_cell.source = '\nif (! exists("%(collector)s")) { %(collector)s = list() }' % {'collector':self.collector}
+            elif self.km.kernel_name == 'python3':
+                source = ['if "%(collector)s" not in locals():', '    %(collector)s = {}']
+                source = '\n'.join(source) % {'collector':self.collector}
+                collector_cell.source = source
+            self.run_cell(collector_cell, 0, log=True)
 
         resources.setdefault('data_model', {})
         resources.setdefault('analysis_data_name', self.analysis_data_name)
@@ -686,7 +723,7 @@ class SimulatePreprocessor(SelectiveInferencePreprocessor):
                          'suff_stat':self.sufficient_stat_name,
                          'val':_uniq('val'),
                          'names':_uniq('names'),
-                         'indicator': _uniq('indicator'),
+                         'indicator': self.indicator_name,
                          'estimates':_uniq('estimates'),
                          }
         
@@ -717,5 +754,42 @@ for %(val) in %(result)s.items():
         result_cell.source = source
         _, cell_output = self.run_cell(result_cell, 0)
 
-        resources['indicators'] = self._capture('%(indicator)s' % template_dict, log=True)
+        resources['indicators'] = self._capture('%(indicator)s' % template_dict, log=True, local=True)
 
+def inference(resources,
+              fit_probability,
+              fit_args={},
+              alpha=0.1):
+
+    from selectinf.learning.core import _inference
+    import functools
+    learning_T = np.asarray(resources['sim_suff_stats'])
+    learning_Y = np.asarray(resources['sim_indicators'])
+    weight_fns = fit_probability(learning_T, learning_Y, **fit_args)
+
+    results = []
+    observed_T = np.squeeze(resources['observed_suff_stat'])
+    for i in range(len(resources['estimates'])):
+        estname = resources['estimates'].columns[i]
+        cross = resources['cross'][estname]
+        var = resources['variances'][estname]
+        estimate = np.squeeze(resources['estimates'][estname])
+        if 'hypothesis' in resources:
+            hypothesis = resources['hypothesis'][estname]
+        else:
+            hypothesis = 0
+
+        direction = np.atleast_1d(np.squeeze(cross.dot(np.linalg.inv(var))))
+        cur_nuisance = np.atleast_1d(np.squeeze(observed_T - direction * estimate))
+        print(direction, cur_nuisance, 'nuisance')
+
+        def new_weight_fn(cur_nuisance, direction, weight_fn, target_val):
+            return weight_fn(np.multiply.outer(target_val, direction) + cur_nuisance[None, :])
+
+        new_weight_fn = functools.partial(new_weight_fn, cur_nuisance, direction, weight_fns[i])
+        results.append(_inference(estimate,
+                                  var.reshape((1, 1)),
+                                  new_weight_fn,
+                                  hypothesis=hypothesis,
+                                  alpha=alpha)[:4])
+    return results
