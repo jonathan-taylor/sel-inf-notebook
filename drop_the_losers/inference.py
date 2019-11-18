@@ -1,10 +1,21 @@
-import copy
+import copy, os
 import json
 import nbformat
 import numpy as np, pandas as pd
 import uuid
 import pickle
 import preprocessors
+from selectinf.learning.fitters import gbm_fit_sk
+from selectinf.learning.core import keras_fit
+
+# simulate some data
+df1 = pd.DataFrame({'X1':np.random.standard_normal(100), 
+                    'X2':np.random.standard_normal(100), 
+                    'X3':np.random.standard_normal(100)})
+df1.to_csv('/Users/jonathantaylor/git-repos/sel-inf-notebook/drop_the_losers/stage1.csv', index=False)
+winner = ['X1', 'X2', 'X3'][np.argmax(np.asarray(df1.mean(0)))]
+df2 = pd.DataFrame({winner:np.random.standard_normal(80)})
+df1.to_csv('/Users/jonathantaylor/git-repos/sel-inf-notebook/drop_the_losers/stage2.csv', index=False)
 
 # Read a notebook (on which to test the preprocessor)
 #nbpath = 'notebooks/hello-world-dataframe.ipynb'
@@ -48,7 +59,7 @@ print("\n-- ANALYSIS COMPLETE --\n")
 
 # Simulation -----------------------------------------------------------
 
-n_simulations = 5
+n_simulations = 2000
 
 # Generate empty numpy arrays to fill with simulated selection and
 # suff stat
@@ -66,11 +77,26 @@ simulate_pp = preprocessors.SimulatePreprocessor(timeout=600,
                                                  analysis_data_name=analysis_pp.data_name,
                                                  nb_log_name='drop_the_losers/simulate_log_drop.ipynb')
 
+observed_suff_stat = analysis_pp._capture(analysis_pp.sufficient_stat_name)
+
 #simulate_pp.data_name = analysis_pp.data_name
 print("Pre-simulation")
 nb, resources = simulate_pp.preprocess(nb, 
                                        resources=resources,
                                        km=analysis_pp.km)
+final_source = ''
+for cell in simulate_pp.nb_log.cells:
+    final_source += '\n#BEGINCELL\n\n'
+    indented_cell = ['    ' + l for l in cell.source.split('\n')]
+    final_source += '\n'.join(indented_cell)
+    final_source += '\n#ENDCELL\n\n'
+
+fn_source = 'data_analysis_scooby = function(%s) {\n %s ; return(%s) }\n' % (simulate_pp.collector, final_source, simulate_pp.collector)
+simulate_pp.run_cell(nbformat.v4.new_code_cell(source=fn_source), 0)
+simulate_pp.run_cell(nbformat.v4.new_code_cell(source='for(i in 1:%(nsim)d) { %(col)s = data_analysis_scooby(%(col)s)}' % 
+                                               {'nsim':n_simulations,
+                                                'col':simulate_pp.collector}), 0)
+
 print('indicators')
 print(resources['indicators'])
 # so we can run the log notebook
@@ -79,88 +105,21 @@ simulate_pp.nb_log.cells = (analysis_pp.nb_log.cells +
 nbformat.write(simulate_pp.nb_log, open('drop_the_losers/simulate_log_drop_final.ipynb', 'w'))
 print('first pass done')
 
-suff_stats = []
-indicators = []
-for i in range(n_simulations):
-    # Preprocess and save results
-    nb, resources = simulate_pp.preprocess(nb, 
-                                           resources=resources,
-                                           km=simulate_pp.km)
-    indicators.append(resources['indicators'])
-    suff_stats.append(resources['suff_stat'])
-
-    print("Suff Stat:\n", suff_stats[-1], "\n")
-    print("\n-- SIMULATION %s COMPLETE --\n" % (i + 1))
-
-resources['indicators'] = pd.concat(indicators)
-resources['suff_stat'] = pd.concat(suff_stats)
+indicators = simulate_pp._capture('%s[["%s"]]' % (simulate_pp.collector, simulate_pp.indicator_name))
+suff_stats = simulate_pp._capture('%s[["%s"]]' % (simulate_pp.collector, simulate_pp.sufficient_stat_name))
+resources['sim_indicators'] = indicators
+resources['sim_suff_stats'] = suff_stats
+resources['observed_suff_stat'] = observed_suff_stat
 pickle.dump(resources, open('drop_the_losers/drop_info.pckl', 'wb'))
 
-# original_selection = resources['original_selection']
+value = preprocessors.inference(resources, keras_fit, 
+                                fit_args={'epochs':10, 'sizes':[100]*5, 'dropout':0., 'activation':'relu'})
+new_df = pd.DataFrame({'pivot':[value[0][0]]})
+import pandas as pd
 
-# # Cleaning up / shutting down ------------------------------------------
-
-# # Shut down the kernel
-# # NOTE: We only need to apply these commands to `simulate_pp` and not
-# # `analysis_pp` because the kernel manager from `analysis_pp` gets
-# # passed to `simulate_pp`.
-# simulate_pp.kc.stop_channels()
-# simulate_pp.km.shutdown_kernel(now=simulate_pp.shutdown_kernel == 'immediate')
-
-# #for attr in ['nb', 'km', 'kc']:
-# #    delattr(simulate_pp, attr)
-
-# # NOTE: Some issues arise when running the script more than once.
-# # It seems that this script does not kill the R sessions it creates -
-# # we need to run `killall R` in bash.
-
-# # Selection indicators -------------------------------------------------
-
-# print("Selection Type:", selection_type)
-
-# def get_fixed_sel_indicator(original_sel_vars, simulated_sel_vars):
-#     return np.array_equal(simulated_sel_vars, original_sel_vars)
-
-
-# def get_set_sel_indicator(original_sel_vars, simulated_sel_vars):
-#     n_vars = original_sel_vars.shape[0]
-#     indicators = np.zeros(n_vars)
-#     # TODO: fix this part, which actually generates positive indicators
-#     """
-#     for i in range(n_vars):
-#         #indicators[i] = np.isin(original_sel_vars[i], simulated_sel_vars)
-#         for j in range(simulated_sel_vars.shape[0]):
-#             if(simulated_sel_vars[j] == original_sel_vars[i]):
-#                 indicators[i] = 1
-#     """
-#     return indicators
-
-
-# if selection_type == 'full':
-#     indicators = np.empty(n_simulations)
-#     for i in range(n_simulations):
-#         indicators[i] = \
-#                 get_fixed_sel_indicator(original_selection, selected_vars_sim[i])
-
-
-# elif selection_type == 'set':
-#     n_vars = original_selection.shape[0]
-#     indicators = np.empty((n_simulations, n_vars))
-#     for i in range(n_simulations):
-#         indicators[i] = \
-#                 get_set_sel_indicator(original_selection, selected_vars_sim[i])
-
-# print(indicators)
-
-# """
-# # 'Lee'-type selection - selected
-# if selection_type == 'set':
-#     # TODO: Right now this is just a copy of full selection (below)
-#     for i in range(n_simulations):
-#         selection[i] = np.array_equal(selected_vars_sim[i], selected_vars_init)
-
-# # 'Liu'-type selection - full
-# elif selection_type == 'fixed':
-#     for i in range(n_simulations):
-#         selection[i] = np.array_equal(selected_vars_sim[i], selected_vars_init)
-# """
+if os.path.exists('results.csv'):
+    df = pd.read_csv('results.csv')
+    df = pd.concat([df, new_df])
+else:
+    df = new_df
+df.to_csv('results.csv', index=False)
